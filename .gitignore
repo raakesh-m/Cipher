@@ -4,6 +4,7 @@ node_modules/
 # Expo caches
 .expo/
 .expo-shared/
+.cursor/
 
 # Build outputs
 dist/
