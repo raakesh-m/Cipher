@@ -6,6 +6,9 @@ node_modules/
 .expo-shared/
 .cursor/
 
+# Environment variables
+.env
+
 # Build outputs
 dist/
 build/
@@ -22,3 +25,9 @@ yarn-error.log*
 # Misc
 package-lock.json
 *.DS_Store
+.env
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
