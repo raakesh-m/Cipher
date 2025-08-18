@@ -1,38 +1,98 @@
+import React, { useState, useEffect } from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createStackNavigator } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, Text, View } from "react-native";
+import { View, ActivityIndicator } from "react-native";
 import { supabase } from "./utils/supabase";
-import { useEffect, useState } from "react";
+
+// Import screens
+import AuthScreen from "./src/screens/AuthScreen";
+import ChatListScreen from "./src/screens/ChatListScreen";
+import ChatScreen from "./src/screens/ChatScreen";
+import SettingsScreen from "./src/screens/SettingsScreen";
+import UserSearchScreen from "./src/screens/UserSearchScreen";
+import MediaViewerScreen from "./src/screens/MediaViewerScreen";
+
+const Stack = createStackNavigator();
 
 export default function App() {
-  const [data, setData] = useState(null);
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      const { data, error } = await supabase.from("test").select("*");
-      if (error) {
-        console.error("Error fetching data:", error);
-      } else {
-        setData(data);
-        console.log("Data fetched successfully:", data);
-      }
-    };
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
 
-    fetchData();
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#007AFF" />
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
+    <NavigationContainer>
       <StatusBar style="auto" />
-    </View>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {session ? (
+          <>
+            <Stack.Screen name="ChatList" component={ChatListScreen} />
+            <Stack.Screen
+              name="Chat"
+              component={ChatScreen}
+              options={{
+                headerShown: true,
+                headerBackTitleVisible: false,
+                headerTintColor: "#007AFF",
+              }}
+            />
+            <Stack.Screen
+              name="Settings"
+              component={SettingsScreen}
+              options={{
+                headerShown: true,
+                title: "Settings",
+                headerTintColor: "#007AFF",
+              }}
+            />
+            <Stack.Screen
+              name="UserSearch"
+              component={UserSearchScreen}
+              options={{
+                headerShown: true,
+                title: "New Chat",
+                headerTintColor: "#007AFF",
+              }}
+            />
+            <Stack.Screen
+              name="MediaViewer"
+              component={MediaViewerScreen}
+              options={{
+                headerShown: true,
+                headerBackTitleVisible: false,
+                headerTintColor: "#fff",
+                headerStyle: { backgroundColor: "#000" },
+              }}
+            />
+          </>
+        ) : (
+          <Stack.Screen name="Auth" component={AuthScreen} />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
