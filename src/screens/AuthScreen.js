@@ -40,7 +40,7 @@ export default function AuthScreen() {
           .from("profiles")
           .select("username")
           .eq("username", username.toLowerCase())
-          .single();
+          .maybeSingle();
 
         if (existingUser) {
           Alert.alert("Error", "Username already taken");

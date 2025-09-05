@@ -4,19 +4,18 @@ import * as Crypto from "expo-crypto";
 const ENCRYPTION_KEY = "cipher_app_key_2024"; // In production, use a proper key management system
 
 export const encryptApiKey = async (apiKey) => {
-  // Simple base64 encoding with a salt (not cryptographically secure, but better than plaintext)
-  const salt = await Crypto.getRandomBytesAsync(16);
-  const saltedKey = ENCRYPTION_KEY + apiKey + salt.toString();
+  // Simple base64 encoding (not cryptographically secure, but better than plaintext)
+  const saltedKey = ENCRYPTION_KEY + apiKey + ENCRYPTION_KEY;
   return btoa(saltedKey);
 };
 
 export const decryptApiKey = async (encryptedKey) => {
   try {
     const decoded = atob(encryptedKey);
-    // Extract the API key (remove the key prefix and salt suffix)
+    // Extract the API key (remove the key prefix and suffix)
     const apiKey = decoded.substring(
       ENCRYPTION_KEY.length,
-      decoded.length - 32
+      decoded.length - ENCRYPTION_KEY.length
     );
     return apiKey;
   } catch (error) {
@@ -33,12 +32,11 @@ export const translateMessage = async (
     const apiKey = await decryptApiKey(encryptedApiKey);
 
     const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
         },
         body: JSON.stringify({
           contents: [
@@ -65,8 +63,10 @@ export const translateMessage = async (
 
       if (response.status === 429) {
         throw new Error("Translation failed - API limit reached");
+      } else if (response.status === 400) {
+        throw new Error("Translation failed - API key not valid. Please pass a valid API key.");
       } else if (response.status === 403) {
-        throw new Error("Translation failed - Invalid API key");
+        throw new Error("Translation failed - Invalid API key or permission denied");
       } else {
         throw new Error(
           `Translation failed - ${errorData.error?.message || "Unknown error"}`

@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+r2-mcp-server/
+
 
 # Expo caches
 .expo/

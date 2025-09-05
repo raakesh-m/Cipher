@@ -25,6 +25,7 @@ export default function SettingsScreen({ navigation }) {
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [languages, setLanguages] = useState([]);
   const [languageSearch, setLanguageSearch] = useState("");
+  const [testingApiKey, setTestingApiKey] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -148,14 +149,18 @@ export default function SettingsScreen({ navigation }) {
       return;
     }
 
+    setTestingApiKey(true);
     try {
       const encryptedKey = await encryptApiKey(geminiApiKey.trim());
       const { translateMessage } = require("../utils/translation");
 
       await translateMessage("Hello, world!", selectedLanguage, encryptedKey);
-      Alert.alert("Success", "API key is working correctly!");
+      Alert.alert("Success", "API key is working correctly! ✅");
     } catch (error) {
+      console.error("API key test error:", error);
       Alert.alert("API Key Test Failed", error.message);
+    } finally {
+      setTestingApiKey(false);
     }
   };
 
@@ -244,8 +249,14 @@ export default function SettingsScreen({ navigation }) {
           <View style={styles.inputGroup}>
             <View style={styles.labelRow}>
               <Text style={styles.label}>Gemini API Key</Text>
-              <TouchableOpacity onPress={testApiKey} style={styles.testButton}>
-                <Text style={styles.testButtonText}>Test</Text>
+              <TouchableOpacity 
+                onPress={testApiKey} 
+                style={[styles.testButton, testingApiKey && styles.testButtonDisabled]}
+                disabled={testingApiKey}
+              >
+                <Text style={styles.testButtonText}>
+                  {testingApiKey ? "Testing..." : "Test"}
+                </Text>
               </TouchableOpacity>
             </View>
             <TextInput
@@ -408,6 +419,9 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 12,
     fontWeight: "600",
+  },
+  testButtonDisabled: {
+    opacity: 0.6,
   },
   removeButton: {
     marginTop: 8,

@@ -9,7 +9,7 @@ import { supabase } from "./utils/supabase";
 import AuthScreen from "./src/screens/AuthScreen";
 import ChatListScreen from "./src/screens/ChatListScreen";
 import ChatScreen from "./src/screens/ChatScreen";
-import SettingsScreen from "./src/screens/SettingsScreen";
+import ModernSettingsScreen from "./src/screens/ModernSettingsScreen";
 import UserSearchScreen from "./src/screens/UserSearchScreen";
 import MediaViewerScreen from "./src/screens/MediaViewerScreen";
 
@@ -62,11 +62,9 @@ export default function App() {
             />
             <Stack.Screen
               name="Settings"
-              component={SettingsScreen}
+              component={ModernSettingsScreen}
               options={{
-                headerShown: true,
-                title: "Settings",
-                headerTintColor: "#007AFF",
+                headerShown: false,
               }}
             />
             <Stack.Screen
