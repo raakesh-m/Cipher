@@ -7,11 +7,14 @@ import {
   StyleSheet,
   SafeAreaView,
   RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../utils/supabase";
+import { useTheme } from "../contexts/ThemeContext";
 
 export default function ChatListScreen({ navigation }) {
+  const { theme, isDark } = useTheme();
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -136,7 +139,14 @@ export default function ChatListScreen({ navigation }) {
 
   const renderChatItem = ({ item }) => (
     <TouchableOpacity
-      style={styles.chatItem}
+      style={[
+        styles.chatItem,
+        {
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.border,
+          ...theme.shadows.sm,
+        },
+      ]}
       onPress={() =>
         navigation.navigate("Chat", {
           chatId: item.id,
@@ -144,7 +154,10 @@ export default function ChatListScreen({ navigation }) {
         })
       }
     >
-      <View style={styles.avatar}>
+      <View style={[
+        styles.avatar,
+        { backgroundColor: theme.colors.primary }
+      ]}>
         <Text style={styles.avatarText}>
           {item.otherUser?.display_name?.charAt(0).toUpperCase() || "?"}
         </Text>
@@ -152,53 +165,153 @@ export default function ChatListScreen({ navigation }) {
 
       <View style={styles.chatInfo}>
         <View style={styles.chatHeader}>
-          <Text style={styles.chatName}>
+          <Text style={[
+            styles.chatName,
+            { color: theme.colors.text }
+          ]}>
             {item.otherUser?.display_name ||
               item.otherUser?.username ||
               "Unknown User"}
           </Text>
-          <Text style={styles.chatTime}>
+          <Text style={[
+            styles.chatTime,
+            { color: theme.colors.textTertiary }
+          ]}>
             {formatTime(item.latestMessage?.created_at)}
           </Text>
         </View>
 
-        <Text style={styles.chatPreview} numberOfLines={1}>
+        <Text 
+          style={[
+            styles.chatPreview,
+            { color: theme.colors.textSecondary }
+          ]} 
+          numberOfLines={1}
+        >
           {formatMessagePreview(item.latestMessage)}
         </Text>
       </View>
     </TouchableOpacity>
   );
 
+  if (loading) {
+    return (
+      <SafeAreaView style={[
+        styles.container,
+        { backgroundColor: theme.colors.background }
+      ]}>
+        <View style={[
+          styles.header,
+          {
+            backgroundColor: theme.colors.surface,
+            borderBottomColor: theme.colors.border,
+          },
+        ]}>
+          <Text style={[
+            styles.title,
+            { color: theme.colors.text }
+          ]}>Chats</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[
+            styles.loadingText,
+            { color: theme.colors.textSecondary }
+          ]}>Loading chats...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Chats</Text>
+    <SafeAreaView style={[
+      styles.container,
+      { backgroundColor: theme.colors.background }
+    ]}>
+      <View style={[
+        styles.header,
+        {
+          backgroundColor: theme.colors.surface,
+          borderBottomColor: theme.colors.border,
+          ...theme.shadows.sm,
+        },
+      ]}>
+        <Text style={[
+          styles.title,
+          { color: theme.colors.text }
+        ]}>Chats</Text>
         <View style={styles.headerButtons}>
           <TouchableOpacity
-            style={styles.headerButton}
+            style={[
+              styles.headerButton,
+              {
+                backgroundColor: theme.colors.background,
+                borderColor: theme.colors.border,
+              },
+            ]}
             onPress={() => navigation.navigate("UserSearch")}
           >
-            <Ionicons name="add" size={24} color="#007AFF" />
+            <Ionicons name="add" size={20} color={theme.colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.headerButton}
+            style={[
+              styles.headerButton,
+              {
+                backgroundColor: theme.colors.background,
+                borderColor: theme.colors.border,
+              },
+            ]}
             onPress={() => navigation.navigate("Settings")}
           >
-            <Ionicons name="settings-outline" size={24} color="#007AFF" />
+            <Ionicons name="settings-outline" size={20} color={theme.colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.headerButton} onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={24} color="#007AFF" />
+          <TouchableOpacity 
+            style={[
+              styles.headerButton,
+              {
+                backgroundColor: theme.colors.background,
+                borderColor: theme.colors.border,
+              },
+            ]} 
+            onPress={handleSignOut}
+          >
+            <Ionicons name="log-out-outline" size={20} color={theme.colors.error} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {chats.length === 0 && !loading ? (
+      {chats.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="chatbubbles-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyText}>No chats yet</Text>
-          <Text style={styles.emptySubtext}>
-            Tap the + button to start a new conversation
+          <View style={[
+            styles.emptyIcon,
+            { backgroundColor: theme.colors.surface }
+          ]}>
+            <Ionicons 
+              name="chatbubbles-outline" 
+              size={48} 
+              color={theme.colors.textTertiary} 
+            />
+          </View>
+          <Text style={[
+            styles.emptyText,
+            { color: theme.colors.text }
+          ]}>No conversations yet</Text>
+          <Text style={[
+            styles.emptySubtext,
+            { color: theme.colors.textSecondary }
+          ]}>
+            Start chatting with friends by tapping the + button above
           </Text>
+          <TouchableOpacity
+            style={[
+              styles.startChatButton,
+              { backgroundColor: theme.colors.primary }
+            ]}
+            onPress={() => navigation.navigate("UserSearch")}
+          >
+            <Ionicons name="add" size={20} color="#fff" style={{ marginRight: theme.spacing.sm }} />
+            <Text style={styles.startChatText}>Start New Chat</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -206,9 +319,18 @@ export default function ChatListScreen({ navigation }) {
           renderItem={renderChatItem}
           keyExtractor={(item) => item.id}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh}
+              tintColor={theme.colors.primary}
+              colors={[theme.colors.primary]}
+            />
           }
-          contentContainerStyle={styles.chatList}
+          contentContainerStyle={[
+            styles.chatList,
+            { backgroundColor: theme.colors.background }
+          ]}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </SafeAreaView>
@@ -218,7 +340,16 @@ export default function ChatListScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "500",
   },
   header: {
     flexDirection: "row",
@@ -226,73 +357,87 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: "#e1e5e9",
   },
   title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#1a1a1a",
+    fontSize: 32,
+    fontWeight: "700",
+    letterSpacing: -0.5,
   },
   headerButtons: {
     flexDirection: "row",
     gap: 8,
   },
   headerButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
   },
   emptyState: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 40,
+    gap: 16,
+  },
+  emptyIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
   },
   emptyText: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: "600",
-    color: "#666",
-    marginTop: 16,
+    textAlign: "center",
   },
   emptySubtext: {
-    fontSize: 14,
-    color: "#999",
+    fontSize: 16,
     textAlign: "center",
+    lineHeight: 22,
+  },
+  startChatButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
     marginTop: 8,
   },
+  startChatText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   chatList: {
-    paddingVertical: 8,
+    paddingVertical: 12,
   },
   chatItem: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: "#fff",
+    paddingVertical: 16,
     marginHorizontal: 16,
-    marginVertical: 4,
-    borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    marginVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#007AFF",
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
+    marginRight: 16,
   },
   avatarText: {
     color: "#fff",
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "600",
   },
   chatInfo: {
@@ -302,19 +447,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
+    marginBottom: 6,
   },
   chatName: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
-    color: "#1a1a1a",
+    letterSpacing: -0.2,
   },
   chatTime: {
-    fontSize: 12,
-    color: "#999",
+    fontSize: 13,
+    fontWeight: "500",
   },
   chatPreview: {
-    fontSize: 14,
-    color: "#666",
+    fontSize: 15,
+    lineHeight: 20,
   },
 });

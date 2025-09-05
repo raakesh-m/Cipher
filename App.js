@@ -4,18 +4,20 @@ import { createStackNavigator } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
 import { View, ActivityIndicator } from "react-native";
 import { supabase } from "./utils/supabase";
+import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
 
 // Import screens
 import AuthScreen from "./src/screens/AuthScreen";
 import ChatListScreen from "./src/screens/ChatListScreen";
 import ChatScreen from "./src/screens/ChatScreen";
-import ModernSettingsScreen from "./src/screens/ModernSettingsScreen";
+import ThemedSettingsScreen from "./src/screens/ThemedSettingsScreen";
 import UserSearchScreen from "./src/screens/UserSearchScreen";
 import MediaViewerScreen from "./src/screens/MediaViewerScreen";
 
 const Stack = createStackNavigator();
 
-export default function App() {
+function AppContent() {
+  const { theme, isDark } = useTheme();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -38,15 +40,20 @@ export default function App() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#007AFF" />
+      <View style={{ 
+        flex: 1, 
+        justifyContent: "center", 
+        alignItems: "center",
+        backgroundColor: theme.colors.background,
+      }}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
   return (
     <NavigationContainer>
-      <StatusBar style="auto" />
+      <StatusBar style={isDark ? "light" : "dark"} />
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {session ? (
           <>
@@ -57,12 +64,18 @@ export default function App() {
               options={{
                 headerShown: true,
                 headerBackTitleVisible: false,
-                headerTintColor: "#007AFF",
+                headerTintColor: theme.colors.primary,
+                headerStyle: { 
+                  backgroundColor: theme.colors.background,
+                },
+                headerTitleStyle: {
+                  color: theme.colors.text,
+                },
               }}
             />
             <Stack.Screen
               name="Settings"
-              component={ModernSettingsScreen}
+              component={ThemedSettingsScreen}
               options={{
                 headerShown: false,
               }}
@@ -73,7 +86,13 @@ export default function App() {
               options={{
                 headerShown: true,
                 title: "New Chat",
-                headerTintColor: "#007AFF",
+                headerTintColor: theme.colors.primary,
+                headerStyle: { 
+                  backgroundColor: theme.colors.background,
+                },
+                headerTitleStyle: {
+                  color: theme.colors.text,
+                },
               }}
             />
             <Stack.Screen
@@ -92,5 +111,13 @@ export default function App() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
   );
 }

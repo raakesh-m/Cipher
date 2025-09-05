@@ -1,0 +1,54 @@
+{
+  "cli": {
+    "version": ">= 16.18.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "SUPABASE_URL": "https://gyevyeaqececfwaafaak.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5ZXZ5ZWFxZWNlY2Z3YWFmYWFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0OTkxMzQsImV4cCI6MjA3MTA3NTEzNH0.40sff-ekU0Kb2IQC6RY0qebzp4_pK-Hc0jfzXOgneeA",
+        "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5ZXZ5ZWFxZWNlY2Z3YWFmYWFrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NTQ5OTEzNCwiZXhwIjoyMDcxMDc1MTM0fQ.xjgfulO9aKEKQ8QvV1N1aw0yGt-4oExdBCUX0PHZWk0",
+        "CLOUDFLARE_R2_ACCOUNT_ID": "69213d412a3be5094e0b6375f470185d",
+        "R2_ACCESS_KEY_ID": "e8ece290c0a5114a91371a33a22753dd",
+        "R2_SECRET_ACCESS_KEY": "23d9dbf2896b2ed21706ec37e3d3d07e55b19f10787c8ff8a52ff541b1e242e2",
+        "R2_ENDPOINT": "https://69213d412a3be5094e0b6375f470185d.r2.cloudflarestorage.com/",
+        "CLOUDFLARE_R2_BUCKET_NAME": "cipher"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "SUPABASE_URL": "https://gyevyeaqececfwaafaak.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5ZXZ5ZWFxZWNlY2Z3YWFmYWFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0OTkxMzQsImV4cCI6MjA3MTA3NTEzNH0.40sff-ekU0Kb2IQC6RY0qebzp4_pK-Hc0jfzXOgneeA",
+        "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5ZXZ5ZWFxZWNlY2Z3YWFmYWFrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NTQ5OTEzNCwiZXhwIjoyMDcxMDc1MTM0fQ.xjgfulO9aKEKQ8QvV1N1aw0yGt-4oExdBCUX0PHZWk0",
+        "CLOUDFLARE_R2_ACCOUNT_ID": "69213d412a3be5094e0b6375f470185d",
+        "R2_ACCESS_KEY_ID": "e8ece290c0a5114a91371a33a22753dd",
+        "R2_SECRET_ACCESS_KEY": "23d9dbf2896b2ed21706ec37e3d3d07e55b19f10787c8ff8a52ff541b1e242e2",
+        "R2_ENDPOINT": "https://69213d412a3be5094e0b6375f470185d.r2.cloudflarestorage.com/",
+        "CLOUDFLARE_R2_BUCKET_NAME": "cipher"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "SUPABASE_URL": "https://gyevyeaqececfwaafaak.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5ZXZ5ZWFxZWNlY2Z3YWFmYWFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU0OTkxMzQsImV4cCI6MjA3MTA3NTEzNH0.40sff-ekU0Kb2IQC6RY0qebzp4_pK-Hc0jfzXOgneeA",
+        "SUPABASE_SERVICE_ROLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5ZXZ5ZWFxZWNlY2Z3YWFmYWFrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NTQ5OTEzNCwiZXhwIjoyMDcxMDc1MTM0fQ.xjgfulO9aKEKQ8QvV1N1aw0yGt-4oExdBCUX0PHZWk0",
+        "CLOUDFLARE_R2_ACCOUNT_ID": "69213d412a3be5094e0b6375f470185d",
+        "R2_ACCESS_KEY_ID": "e8ece290c0a5114a91371a33a22753dd",
+        "R2_SECRET_ACCESS_KEY": "23d9dbf2896b2ed21706ec37e3d3d07e55b19f10787c8ff8a52ff541b1e242e2",
+        "R2_ENDPOINT": "https://69213d412a3be5094e0b6375f470185d.r2.cloudflarestorage.com/",
+        "CLOUDFLARE_R2_BUCKET_NAME": "cipher"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

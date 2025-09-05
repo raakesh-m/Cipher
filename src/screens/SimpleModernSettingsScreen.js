@@ -12,47 +12,16 @@ import {
   Animated,
   Dimensions,
   StatusBar,
-  Haptics,
   Platform,
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-// Comment out problematic imports for now and add fallbacks
-// import { LinearGradient } from 'expo-linear-gradient';
-// import { BlurView } from 'expo-blur';
-// import * as Haptics from 'expo-haptics';
 import { supabase } from "../../utils/supabase";
 import { encryptApiKey, decryptApiKey } from "../utils/translation";
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-// Fallback components for when dependencies aren't available
-const LinearGradient = ({ colors, style, children, ...props }) => (
-  <View style={[style, { backgroundColor: colors[0] }]} {...props}>
-    {children}
-  </View>
-);
-
-const BlurView = ({ intensity, style, children, ...props }) => (
-  <View style={[style, { backgroundColor: 'rgba(255,255,255,0.15)' }]} {...props}>
-    {children}
-  </View>
-);
-
-// Haptic feedback fallback
-const HapticsCompat = {
-  impactAsync: (style) => {
-    // Silent fallback for non-iOS or when Haptics not available
-    if (Platform.OS === 'ios') {
-      // Could add Vibration API here as fallback
-    }
-  },
-  notificationAsync: (type) => {
-    // Silent fallback
-  }
-};
-
-const ModernSettingsScreen = ({ navigation }) => {
+const SimpleModernSettingsScreen = ({ navigation }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -70,7 +39,6 @@ const ModernSettingsScreen = ({ navigation }) => {
   const testButtonScale = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const successAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     loadProfile();
@@ -80,46 +48,16 @@ const ModernSettingsScreen = ({ navigation }) => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 600,
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 800,
+        duration: 600,
         useNativeDriver: true,
       }),
     ]).start();
-
-    // Continuous pulse animation for active elements
-    const pulseLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.05,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    pulseLoop.start();
-
-    return () => pulseLoop.stop();
   }, []);
-
-  const hapticFeedback = (type = 'light') => {
-    if (Platform.OS === 'ios') {
-      try {
-        HapticsCompat.impactAsync(type);
-      } catch (error) {
-        // Silent fallback if haptics not available
-        console.log('Haptic feedback not available:', type);
-      }
-    }
-  };
 
   const animateButton = (animValue, callback) => {
     Animated.sequence([
@@ -179,7 +117,7 @@ const ModernSettingsScreen = ({ navigation }) => {
       setLanguages(data || []);
     } catch (error) {
       console.error("Error loading languages:", error);
-      // Fallback languages if database query fails
+      // Fallback languages
       setLanguages([
         { code: "en", name: "English", native_name: "English" },
         { code: "es", name: "Spanish", native_name: "Español" },
@@ -198,7 +136,6 @@ const ModernSettingsScreen = ({ navigation }) => {
   const saveSettings = async () => {
     if (!profile) return;
 
-    hapticFeedback('medium');
     setSaving(true);
     
     // Start progress animation
@@ -236,26 +173,25 @@ const ModernSettingsScreen = ({ navigation }) => {
       if (error) throw error;
 
       // Success animation
-      hapticFeedback('success');
       Animated.timing(successAnim, {
         toValue: 1,
-        duration: 600,
+        duration: 500,
         useNativeDriver: true,
       }).start(() => {
         setTimeout(() => {
           Animated.timing(successAnim, {
             toValue: 0,
-            duration: 400,
+            duration: 300,
             useNativeDriver: true,
           }).start();
-        }, 2000);
+        }, 1500);
       });
 
+      Alert.alert("✅ Success!", "Settings saved successfully!");
       await loadProfile();
     } catch (error) {
       console.error("Error saving settings:", error);
-      hapticFeedback('error');
-      Alert.alert("Error", "Failed to save settings");
+      Alert.alert("❌ Error", "Failed to save settings");
     } finally {
       setSaving(false);
       progressAnim.setValue(0);
@@ -264,12 +200,10 @@ const ModernSettingsScreen = ({ navigation }) => {
 
   const testApiKey = async () => {
     if (!geminiApiKey.trim()) {
-      hapticFeedback('error');
-      Alert.alert("Error", "Please enter an API key first");
+      Alert.alert("❌ Error", "Please enter an API key first");
       return;
     }
 
-    hapticFeedback('medium');
     animateButton(testButtonScale);
     setTestingApiKey(true);
 
@@ -286,11 +220,10 @@ const ModernSettingsScreen = ({ navigation }) => {
 
       await translateMessage("Hello, world!", selectedLanguage, encryptedKey);
       
-      // Success animation and haptic
-      hapticFeedback('success');
+      // Success animation
       Animated.timing(successAnim, {
         toValue: 1,
-        duration: 600,
+        duration: 500,
         useNativeDriver: true,
       }).start();
 
@@ -302,7 +235,7 @@ const ModernSettingsScreen = ({ navigation }) => {
           onPress: () => {
             Animated.timing(successAnim, {
               toValue: 0,
-              duration: 400,
+              duration: 300,
               useNativeDriver: true,
             }).start();
           }
@@ -310,7 +243,6 @@ const ModernSettingsScreen = ({ navigation }) => {
       );
     } catch (error) {
       console.error("API key test error:", error);
-      hapticFeedback('error');
       Alert.alert(
         "❌ Test Failed", 
         error.message,
@@ -323,7 +255,6 @@ const ModernSettingsScreen = ({ navigation }) => {
   };
 
   const removeApiKey = () => {
-    hapticFeedback('medium');
     Alert.alert(
       "🗑️ Remove API Key",
       "Are you sure you want to remove your Gemini API key? Translation will be disabled.",
@@ -332,10 +263,7 @@ const ModernSettingsScreen = ({ navigation }) => {
         {
           text: "Remove",
           style: "destructive",
-          onPress: () => {
-            hapticFeedback('light');
-            setGeminiApiKey("");
-          },
+          onPress: () => setGeminiApiKey(""),
         },
       ]
     );
@@ -352,77 +280,40 @@ const ModernSettingsScreen = ({ navigation }) => {
     (lang) => lang.code === selectedLanguage
   );
 
-  const renderLanguageItem = ({ item, index }) => (
-    <Animated.View
+  const renderLanguageItem = ({ item }) => (
+    <TouchableOpacity
       style={[
-        styles.languageItemContainer,
-        {
-          transform: [{
-            translateY: fadeAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [30, 0],
-            })
-          }],
-          opacity: fadeAnim,
-        }
+        styles.languageItem,
+        selectedLanguage === item.code && styles.selectedLanguageItem,
       ]}
+      onPress={() => {
+        setSelectedLanguage(item.code);
+        setShowLanguagePicker(false);
+      }}
+      activeOpacity={0.7}
     >
-      <TouchableOpacity
-        style={[
-          styles.languageItem,
-          selectedLanguage === item.code && styles.selectedLanguageItem,
-        ]}
-        onPress={() => {
-          hapticFeedback('light');
-          setSelectedLanguage(item.code);
-          setShowLanguagePicker(false);
-        }}
-        activeOpacity={0.7}
-      >
-        <View style={styles.languageInfo}>
-          <Text style={styles.languageName}>{item.name}</Text>
-          <Text style={styles.languageNative}>{item.native_name}</Text>
-        </View>
-        {selectedLanguage === item.code && (
-          <Animated.View style={{ transform: [{ scale: successAnim.interpolate({
-            inputRange: [0, 1],
-            outputRange: [0.5, 1],
-          })}] }}>
-            <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
-          </Animated.View>
-        )}
-      </TouchableOpacity>
-    </Animated.View>
+      <View style={styles.languageInfo}>
+        <Text style={styles.languageName}>{item.name}</Text>
+        <Text style={styles.languageNative}>{item.native_name}</Text>
+      </View>
+      {selectedLanguage === item.code && (
+        <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+      )}
+    </TouchableOpacity>
   );
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
-        <LinearGradient
-          colors={['#667eea', '#764ba2']}
-          style={StyleSheet.absoluteFill}
-        />
-        <Animated.View style={[
-          styles.loadingContent,
-          { transform: [{ rotate: pulseAnim.interpolate({
-            inputRange: [1, 1.05],
-            outputRange: ['0deg', '360deg'],
-          })}] }
-        ]}>
-          <Ionicons name="settings" size={60} color="#fff" />
-          <Text style={styles.loadingText}>Loading your settings...</Text>
-        </Animated.View>
+        <Ionicons name="settings" size={60} color="#6366f1" />
+        <Text style={styles.loadingText}>Loading your settings...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <LinearGradient
-        colors={['#667eea', '#764ba2', '#667eea']}
-        style={StyleSheet.absoluteFill}
-      />
+      <StatusBar barStyle="light-content" backgroundColor="#6366f1" />
       
       {/* Success Overlay */}
       <Animated.View
@@ -450,10 +341,7 @@ const ModernSettingsScreen = ({ navigation }) => {
           ]}
         >
           <TouchableOpacity
-            onPress={() => {
-              hapticFeedback('light');
-              navigation.goBack();
-            }}
+            onPress={() => navigation.goBack()}
             style={styles.backButton}
           >
             <Ionicons name="chevron-back" size={28} color="#fff" />
@@ -473,26 +361,21 @@ const ModernSettingsScreen = ({ navigation }) => {
           showsVerticalScrollIndicator={false}
         >
           {/* Profile Section */}
-          <BlurView intensity={20} style={styles.section}>
+          <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="person-circle" size={24} color="#fff" />
+              <Ionicons name="person-circle" size={24} color="#6366f1" />
               <Text style={styles.sectionTitle}>Profile</Text>
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Display Name</Text>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  value={displayName}
-                  onChangeText={(text) => {
-                    hapticFeedback('light');
-                    setDisplayName(text);
-                  }}
-                  placeholder="Enter display name"
-                  placeholderTextColor="rgba(255,255,255,0.6)"
-                />
-              </View>
+              <TextInput
+                style={styles.input}
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Enter display name"
+                placeholderTextColor="#999"
+              />
             </View>
 
             <View style={styles.inputGroup}>
@@ -501,12 +384,12 @@ const ModernSettingsScreen = ({ navigation }) => {
                 <Text style={styles.readOnlyText}>@{profile?.username}</Text>
               </View>
             </View>
-          </BlurView>
+          </View>
 
           {/* Language & Translation Section */}
-          <BlurView intensity={20} style={styles.section}>
+          <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Ionicons name="language" size={24} color="#fff" />
+              <Ionicons name="language" size={24} color="#6366f1" />
               <Text style={styles.sectionTitle}>Language & Translation</Text>
             </View>
 
@@ -514,10 +397,7 @@ const ModernSettingsScreen = ({ navigation }) => {
               <Text style={styles.label}>Preferred Language</Text>
               <TouchableOpacity
                 style={styles.languageSelector}
-                onPress={() => {
-                  hapticFeedback('medium');
-                  setShowLanguagePicker(true);
-                }}
+                onPress={() => setShowLanguagePicker(true)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.languageSelectorText}>
@@ -525,7 +405,7 @@ const ModernSettingsScreen = ({ navigation }) => {
                     ? `${selectedLanguageData.name} (${selectedLanguageData.native_name})`
                     : "Select Language"}
                 </Text>
-                <Ionicons name="chevron-down" size={20} color="rgba(255,255,255,0.7)" />
+                <Ionicons name="chevron-down" size={20} color="#666" />
               </TouchableOpacity>
             </View>
 
@@ -542,40 +422,32 @@ const ModernSettingsScreen = ({ navigation }) => {
                     disabled={testingApiKey}
                     activeOpacity={0.8}
                   >
-                    {testingApiKey ? (
-                      <View style={styles.testButtonContent}>
-                        <Animated.View
-                          style={[
-                            styles.loadingDot,
-                            { opacity: pulseAnim },
-                          ]}
-                        />
-                        <Text style={styles.testButtonText}>Testing...</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.testButtonContent}>
-                        <Ionicons name="flash" size={16} color="#fff" />
-                        <Text style={styles.testButtonText}>Test</Text>
-                      </View>
-                    )}
+                    <View style={styles.testButtonContent}>
+                      {testingApiKey && (
+                        <View style={styles.loadingDot} />
+                      )}
+                      <Ionicons 
+                        name={testingApiKey ? "hourglass" : "flash"} 
+                        size={16} 
+                        color="#fff" 
+                      />
+                      <Text style={styles.testButtonText}>
+                        {testingApiKey ? "Testing..." : "Test"}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 </Animated.View>
               </View>
 
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={styles.input}
-                  value={geminiApiKey}
-                  onChangeText={(text) => {
-                    hapticFeedback('light');
-                    setGeminiApiKey(text);
-                  }}
-                  placeholder="Enter your Gemini API key"
-                  placeholderTextColor="rgba(255,255,255,0.6)"
-                  secureTextEntry
-                  autoCapitalize="none"
-                />
-              </View>
+              <TextInput
+                style={styles.input}
+                value={geminiApiKey}
+                onChangeText={setGeminiApiKey}
+                placeholder="Enter your Gemini API key"
+                placeholderTextColor="#999"
+                secureTextEntry
+                autoCapitalize="none"
+              />
 
               <Text style={styles.helperText}>
                 🚀 Get your free API key from Google AI Studio. This enables automatic message translation with AI power.
@@ -592,11 +464,11 @@ const ModernSettingsScreen = ({ navigation }) => {
                 </TouchableOpacity>
               )}
             </View>
-          </BlurView>
+          </View>
 
           {/* Progress Indicator */}
           {(saving || testingApiKey) && (
-            <Animated.View style={styles.progressContainer}>
+            <View style={styles.progressContainer}>
               <View style={styles.progressBar}>
                 <Animated.View
                   style={[
@@ -611,9 +483,9 @@ const ModernSettingsScreen = ({ navigation }) => {
                 />
               </View>
               <Text style={styles.progressText}>
-                {saving ? 'Saving your settings...' : 'Testing your API key...'}
+                {saving ? '💾 Saving your settings...' : '🧪 Testing your API key...'}
               </Text>
-            </Animated.View>
+            </View>
           )}
 
           {/* Save Button */}
@@ -622,33 +494,21 @@ const ModernSettingsScreen = ({ navigation }) => {
               styles.saveButton,
               saving && styles.saveButtonDisabled,
             ]}
-            onPress={() => {
-              animateButton(testButtonScale, saveSettings);
-            }}
+            onPress={() => animateButton(testButtonScale, saveSettings)}
             disabled={saving}
             activeOpacity={0.8}
           >
-            <LinearGradient
-              colors={saving ? ['#666', '#888'] : ['#4CAF50', '#45a049']}
-              style={styles.saveButtonGradient}
-            >
-              {saving ? (
-                <View style={styles.saveButtonContent}>
-                  <Animated.View
-                    style={[
-                      styles.loadingDot,
-                      { opacity: pulseAnim },
-                    ]}
-                  />
-                  <Text style={styles.saveButtonText}>Saving...</Text>
-                </View>
-              ) : (
-                <View style={styles.saveButtonContent}>
-                  <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                  <Text style={styles.saveButtonText}>Save Settings</Text>
-                </View>
-              )}
-            </LinearGradient>
+            <View style={styles.saveButtonContent}>
+              {saving && <View style={styles.loadingDot} />}
+              <Ionicons 
+                name={saving ? "hourglass" : "checkmark-circle"} 
+                size={20} 
+                color="#fff" 
+              />
+              <Text style={styles.saveButtonText}>
+                {saving ? "Saving..." : "Save Settings"}
+              </Text>
+            </View>
           </TouchableOpacity>
         </Animated.ScrollView>
 
@@ -657,41 +517,31 @@ const ModernSettingsScreen = ({ navigation }) => {
           visible={showLanguagePicker}
           animationType="slide"
           presentationStyle="pageSheet"
-          onShow={() => hapticFeedback('medium')}
         >
-          <LinearGradient
-            colors={['#667eea', '#764ba2']}
-            style={styles.modalContainer}
-          >
-            <BlurView intensity={20} style={styles.modalHeader}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
               <TouchableOpacity
-                onPress={() => {
-                  hapticFeedback('light');
-                  setShowLanguagePicker(false);
-                }}
+                onPress={() => setShowLanguagePicker(false)}
               >
                 <Text style={styles.modalCancel}>Cancel</Text>
               </TouchableOpacity>
               <Text style={styles.modalTitle}>Select Language</Text>
               <View style={styles.modalSpacer} />
-            </BlurView>
+            </View>
 
             <View style={styles.searchContainer}>
               <Ionicons
                 name="search"
                 size={20}
-                color="rgba(255,255,255,0.7)"
+                color="#666"
                 style={styles.searchIcon}
               />
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search languages..."
-                placeholderTextColor="rgba(255,255,255,0.6)"
+                placeholderTextColor="#999"
                 value={languageSearch}
-                onChangeText={(text) => {
-                  hapticFeedback('light');
-                  setLanguageSearch(text);
-                }}
+                onChangeText={setLanguageSearch}
               />
             </View>
 
@@ -702,7 +552,7 @@ const ModernSettingsScreen = ({ navigation }) => {
               style={styles.languageList}
               showsVerticalScrollIndicator={false}
             />
-          </LinearGradient>
+          </View>
         </Modal>
       </SafeAreaView>
     </View>
@@ -712,6 +562,7 @@ const ModernSettingsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#6366f1',
   },
   safeArea: {
     flex: 1,
@@ -720,15 +571,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  loadingContent: {
-    alignItems: 'center',
-    padding: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#f8fafc',
   },
   loadingText: {
-    color: '#fff',
+    color: '#6366f1',
     fontSize: 18,
     marginTop: 20,
     fontWeight: '600',
@@ -752,7 +598,6 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: '#fff',
-    textShadow: '0px 2px 4px rgba(0,0,0,0.3)',
   },
   headerSpacer: {
     width: 44,
@@ -765,13 +610,12 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderRadius: 20,
     padding: 24,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -781,7 +625,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#fff',
+    color: '#1f2937',
     marginLeft: 12,
   },
   inputGroup: {
@@ -790,7 +634,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: '#374151',
     marginBottom: 8,
   },
   labelRow: {
@@ -799,48 +643,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  inputContainer: {
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
-  },
   input: {
+    borderRadius: 16,
+    backgroundColor: '#f9fafb',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
     padding: 18,
     fontSize: 16,
-    color: '#fff',
+    color: '#1f2937',
     fontWeight: '500',
   },
   readOnlyContainer: {
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#f3f4f6',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
     padding: 18,
   },
   readOnlyText: {
     fontSize: 16,
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6b7280',
     fontWeight: '500',
   },
   languageSelector: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#f9fafb',
     borderRadius: 16,
     padding: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
   },
   languageSelectorText: {
     fontSize: 16,
-    color: '#fff',
+    color: '#1f2937',
     fontWeight: '500',
   },
   helperText: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6b7280',
     marginTop: 8,
     lineHeight: 20,
   },
@@ -853,6 +695,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
+    elevation: 4,
   },
   testButtonTesting: {
     backgroundColor: '#FF9800',
@@ -872,6 +715,7 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
     backgroundColor: '#fff',
+    marginRight: 6,
   },
   removeButton: {
     flexDirection: 'row',
@@ -888,43 +732,52 @@ const styles = StyleSheet.create({
   progressContainer: {
     marginVertical: 16,
     alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   progressBar: {
     width: '100%',
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 2,
+    height: 6,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     backgroundColor: '#4CAF50',
+    borderRadius: 3,
   },
   progressText: {
-    color: '#fff',
+    color: '#1f2937',
     fontSize: 16,
     fontWeight: '600',
-    marginTop: 8,
+    marginTop: 12,
   },
   saveButton: {
     borderRadius: 16,
     marginVertical: 20,
+    backgroundColor: '#4CAF50',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
+    elevation: 8,
   },
   saveButtonDisabled: {
-    opacity: 0.6,
-  },
-  saveButtonGradient: {
-    padding: 18,
-    borderRadius: 16,
-    alignItems: 'center',
+    backgroundColor: '#9ca3af',
+    opacity: 0.8,
   },
   saveButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
   },
   saveButtonText: {
     color: '#fff',
@@ -940,7 +793,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     zIndex: 1000,
   },
   successText: {
@@ -951,6 +804,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     flex: 1,
+    backgroundColor: '#f8fafc',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -958,18 +812,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 20,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.2)',
+    borderBottomColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
   },
   modalCancel: {
-    color: '#fff',
+    color: '#6366f1',
     fontSize: 18,
     fontWeight: '600',
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#fff',
+    color: '#1f2937',
   },
   modalSpacer: {
     width: 60,
@@ -977,13 +837,18 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: '#fff',
     marginHorizontal: 20,
     marginVertical: 16,
     borderRadius: 16,
     paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   searchIcon: {
     marginRight: 12,
@@ -992,30 +857,33 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 16,
     fontSize: 16,
-    color: '#fff',
+    color: '#1f2937',
     fontWeight: '500',
   },
   languageList: {
     flex: 1,
   },
-  languageItemContainer: {
-    marginHorizontal: 20,
-    marginVertical: 4,
-  },
   languageItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginVertical: 4,
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   selectedLanguageItem: {
-    backgroundColor: 'rgba(76, 175, 80, 0.2)',
     borderColor: '#4CAF50',
+    backgroundColor: '#f0f9f0',
   },
   languageInfo: {
     flex: 1,
@@ -1023,13 +891,13 @@ const styles = StyleSheet.create({
   languageName: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#fff',
+    color: '#1f2937',
   },
   languageNative: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
+    color: '#6b7280',
     marginTop: 2,
   },
 });
 
-export default ModernSettingsScreen;
+export default SimpleModernSettingsScreen;

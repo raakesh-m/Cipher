@@ -9,16 +9,22 @@ import {
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
+  ActivityIndicator,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { supabase } from "../../utils/supabase";
+import { useTheme } from "../contexts/ThemeContext";
 
 export default function AuthScreen() {
+  const { theme } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -83,90 +89,204 @@ export default function AuthScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardView}
-      >
-        <View style={styles.content}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Cipher</Text>
-            <Text style={styles.subtitle}>
-              {isSignUp ? "Create your account" : "Welcome back"}
-            </Text>
-          </View>
+    <LinearGradient
+      colors={[theme.colors.primary + '20', theme.colors.background]}
+      style={styles.gradient}
+    >
+      <SafeAreaView style={[
+        styles.container,
+        { backgroundColor: 'transparent' }
+      ]}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.keyboardView}
+        >
+          <View style={styles.content}>
+            <View style={styles.header}>
+              <View style={[
+                styles.logoContainer,
+                { backgroundColor: theme.colors.primary }
+              ]}>
+                <Ionicons name="shield-checkmark" size={32} color="#fff" />
+              </View>
+              <Text style={[
+                styles.title,
+                { color: theme.colors.text }
+              ]}>Cipher</Text>
+              <Text style={[
+                styles.subtitle,
+                { color: theme.colors.textSecondary }
+              ]}>
+                {isSignUp ? "Create your account" : "Welcome back"}
+              </Text>
+            </View>
 
-          <View style={styles.form}>
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              autoComplete="email"
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoComplete="password"
-            />
-
-            {isSignUp && (
-              <>
+            <View style={[
+              styles.form,
+              {
+                backgroundColor: theme.colors.surface,
+                borderColor: theme.colors.border,
+                ...theme.shadows.lg,
+              },
+            ]}>
+              <View style={styles.inputGroup}>
+                <Text style={[
+                  styles.inputLabel,
+                  { color: theme.colors.text }
+                ]}>Email Address</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="Username"
-                  value={username}
-                  onChangeText={setUsername}
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: theme.colors.inputBackground,
+                      borderColor: theme.colors.inputBorder,
+                      color: theme.colors.text,
+                    },
+                  ]}
+                  placeholder="Enter your email"
+                  placeholderTextColor={theme.colors.inputPlaceholder}
+                  value={email}
+                  onChangeText={setEmail}
                   autoCapitalize="none"
-                  autoComplete="username"
+                  keyboardType="email-address"
+                  autoComplete="email"
                 />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Display Name (optional)"
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  autoComplete="name"
-                />
-              </>
-            )}
+              </View>
 
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleAuth}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? "Loading..." : isSignUp ? "Sign Up" : "Sign In"}
-              </Text>
-            </TouchableOpacity>
+              <View style={styles.inputGroup}>
+                <Text style={[
+                  styles.inputLabel,
+                  { color: theme.colors.text }
+                ]}>Password</Text>
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      styles.passwordInput,
+                      {
+                        backgroundColor: theme.colors.inputBackground,
+                        borderColor: theme.colors.inputBorder,
+                        color: theme.colors.text,
+                      },
+                    ]}
+                    placeholder="Enter your password"
+                    placeholderTextColor={theme.colors.inputPlaceholder}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    autoComplete="password"
+                  />
+                  <TouchableOpacity
+                    style={styles.passwordToggle}
+                    onPress={() => setShowPassword(!showPassword)}
+                  >
+                    <Ionicons 
+                      name={showPassword ? "eye-off" : "eye"} 
+                      size={20} 
+                      color={theme.colors.textTertiary} 
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-            <TouchableOpacity
-              style={styles.switchButton}
-              onPress={() => setIsSignUp(!isSignUp)}
-            >
-              <Text style={styles.switchText}>
-                {isSignUp
-                  ? "Already have an account? Sign In"
-                  : "Don't have an account? Sign Up"}
-              </Text>
-            </TouchableOpacity>
+              {isSignUp && (
+                <>
+                  <View style={styles.inputGroup}>
+                    <Text style={[
+                      styles.inputLabel,
+                      { color: theme.colors.text }
+                    ]}>Username</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: theme.colors.inputBackground,
+                          borderColor: theme.colors.inputBorder,
+                          color: theme.colors.text,
+                        },
+                      ]}
+                      placeholder="Choose a username"
+                      placeholderTextColor={theme.colors.inputPlaceholder}
+                      value={username}
+                      onChangeText={setUsername}
+                      autoCapitalize="none"
+                      autoComplete="username"
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={[
+                      styles.inputLabel,
+                      { color: theme.colors.text }
+                    ]}>Display Name (Optional)</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: theme.colors.inputBackground,
+                          borderColor: theme.colors.inputBorder,
+                          color: theme.colors.text,
+                        },
+                      ]}
+                      placeholder="How should others see your name?"
+                      placeholderTextColor={theme.colors.inputPlaceholder}
+                      value={displayName}
+                      onChangeText={setDisplayName}
+                      autoComplete="name"
+                    />
+                  </View>
+                </>
+              )}
+
+              <TouchableOpacity
+                style={[
+                  styles.button,
+                  {
+                    backgroundColor: loading 
+                      ? theme.colors.textTertiary 
+                      : theme.colors.primary,
+                    ...theme.shadows.md,
+                  },
+                ]}
+                onPress={handleAuth}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size={20} color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>
+                    {isSignUp ? "Create Account" : "Sign In"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.switchButton}
+                onPress={() => setIsSignUp(!isSignUp)}
+                disabled={loading}
+              >
+                <Text style={[
+                  styles.switchText,
+                  { color: theme.colors.primary }
+                ]}>
+                  {isSignUp
+                    ? "Already have an account? Sign In"
+                    : "Don't have an account? Sign Up"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  gradient: {
+    flex: 1,
+  },
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
   },
   keyboardView: {
     flex: 1,
@@ -178,50 +298,79 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: "center",
-    marginBottom: 48,
+    marginBottom: 40,
+  },
+  logoContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#1a1a1a",
+    fontSize: 36,
+    fontWeight: "700",
     marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#666",
+    fontSize: 17,
+    fontWeight: "500",
   },
   form: {
-    gap: 16,
+    borderRadius: 20,
+    padding: 24,
+    borderWidth: 1,
+    gap: 20,
+  },
+  inputGroup: {
+    gap: 8,
+  },
+  inputLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginLeft: 4,
   },
   input: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: "#e1e5e9",
+    fontWeight: "500",
+  },
+  passwordContainer: {
+    position: "relative",
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  passwordToggle: {
+    position: "absolute",
+    right: 16,
+    top: 14,
+    padding: 4,
   },
   button: {
-    backgroundColor: "#007AFF",
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    paddingVertical: 16,
     alignItems: "center",
+    justifyContent: "center",
     marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
+    minHeight: 52,
   },
   buttonText: {
     color: "#fff",
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "600",
   },
   switchButton: {
     alignItems: "center",
-    marginTop: 16,
+    paddingVertical: 12,
   },
   switchText: {
-    color: "#007AFF",
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: "500",
   },
 });

@@ -11,14 +11,17 @@ import {
   Platform,
   Alert,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../../utils/supabase";
 import { translateMessage } from "../utils/translation";
 import { uploadToR2, getR2Url } from "../utils/r2Storage";
+import { useTheme } from "../contexts/ThemeContext";
 
 export default function ChatScreen({ route, navigation }) {
+  const { theme } = useTheme();
   const { chatId, otherUser } = route.params;
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
@@ -322,7 +325,17 @@ export default function ChatScreen({ route, navigation }) {
       <View
         style={[
           styles.messageContainer,
-          isFromMe ? styles.myMessage : styles.otherMessage,
+          isFromMe ? {
+            alignSelf: "flex-end",
+            backgroundColor: theme.colors.primary,
+            ...theme.shadows.sm,
+          } : {
+            alignSelf: "flex-start",
+            backgroundColor: theme.colors.card,
+            borderWidth: 1,
+            borderColor: theme.colors.border,
+            ...theme.shadows.sm,
+          },
         ]}
       >
         {item.message_type === "text" ? (
@@ -330,14 +343,25 @@ export default function ChatScreen({ route, navigation }) {
             <Text
               style={[
                 styles.messageText,
-                isFromMe ? styles.myMessageText : styles.otherMessageText,
+                {
+                  color: isFromMe ? "#fff" : theme.colors.text,
+                },
               ]}
             >
               {displayContent}
             </Text>
             {!isFromMe && item.translation_failed && (
-              <View style={styles.translationError}>
-                <Text style={styles.errorText}>
+              <View style={[
+                styles.translationError,
+                {
+                  backgroundColor: theme.colors.error + '20',
+                  borderColor: theme.colors.error + '40',
+                }
+              ]}>
+                <Text style={[
+                  styles.errorText,
+                  { color: theme.colors.error }
+                ]}>
                   Translation failed - API limit reached
                 </Text>
                 <TouchableOpacity
@@ -346,7 +370,10 @@ export default function ChatScreen({ route, navigation }) {
                   }
                   style={styles.retryButton}
                 >
-                  <Text style={styles.retryText}>Retry</Text>
+                  <Text style={[
+                    styles.retryText,
+                    { color: theme.colors.primary }
+                  ]}>Retry</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -378,7 +405,12 @@ export default function ChatScreen({ route, navigation }) {
         <Text
           style={[
             styles.timestamp,
-            isFromMe ? styles.myTimestamp : styles.otherTimestamp,
+            {
+              color: isFromMe 
+                ? "rgba(255,255,255,0.7)" 
+                : theme.colors.textTertiary,
+              textAlign: isFromMe ? "right" : "left",
+            },
           ]}
         >
           {new Date(item.created_at).toLocaleTimeString([], {
@@ -390,8 +422,28 @@ export default function ChatScreen({ route, navigation }) {
     );
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={[
+        styles.container,
+        { backgroundColor: theme.colors.background }
+      ]}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[
+            styles.loadingText,
+            { color: theme.colors.textSecondary }
+          ]}>Loading messages...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[
+      styles.container,
+      { backgroundColor: theme.colors.background }
+    ]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
@@ -401,22 +453,49 @@ export default function ChatScreen({ route, navigation }) {
           data={messages}
           renderItem={renderMessage}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.messagesList}
+          contentContainerStyle={[
+            styles.messagesList,
+            { backgroundColor: theme.colors.background }
+          ]}
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: true })
           }
+          showsVerticalScrollIndicator={false}
         />
 
-        <View style={styles.inputContainer}>
-          <TouchableOpacity style={styles.mediaButton} onPress={pickImage}>
-            <Ionicons name="image" size={24} color="#007AFF" />
+        <View style={[
+          styles.inputContainer,
+          {
+            backgroundColor: theme.colors.surface,
+            borderTopColor: theme.colors.border,
+          },
+        ]}>
+          <TouchableOpacity 
+            style={[
+              styles.mediaButton,
+              {
+                backgroundColor: theme.colors.background,
+                borderColor: theme.colors.border,
+              },
+            ]} 
+            onPress={pickImage}
+          >
+            <Ionicons name="image-outline" size={22} color={theme.colors.primary} />
           </TouchableOpacity>
 
           <TextInput
-            style={styles.textInput}
+            style={[
+              styles.textInput,
+              {
+                backgroundColor: theme.colors.inputBackground,
+                borderColor: theme.colors.inputBorder,
+                color: theme.colors.text,
+              },
+            ]}
             value={inputText}
             onChangeText={setInputText}
             placeholder="Type a message..."
+            placeholderTextColor={theme.colors.inputPlaceholder}
             multiline
             maxLength={1000}
           />
@@ -424,12 +503,20 @@ export default function ChatScreen({ route, navigation }) {
           <TouchableOpacity
             style={[
               styles.sendButton,
-              (!inputText.trim() || sending) && styles.sendButtonDisabled,
+              {
+                backgroundColor: (!inputText.trim() || sending) 
+                  ? theme.colors.textTertiary 
+                  : theme.colors.primary,
+              },
             ]}
             onPress={sendMessage}
             disabled={!inputText.trim() || sending}
           >
-            <Ionicons name="send" size={20} color="#fff" />
+            {sending ? (
+              <ActivityIndicator size={16} color="#fff" />
+            ) : (
+              <Ionicons name="send" size={18} color="#fff" />
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -440,81 +527,69 @@ export default function ChatScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8f9fa",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: "500",
   },
   keyboardView: {
     flex: 1,
   },
   messagesList: {
-    paddingVertical: 16,
+    paddingVertical: 20,
     paddingHorizontal: 16,
+    flexGrow: 1,
   },
   messageContainer: {
-    maxWidth: "80%",
-    marginVertical: 4,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  myMessage: {
-    alignSelf: "flex-end",
-    backgroundColor: "#007AFF",
-  },
-  otherMessage: {
-    alignSelf: "flex-start",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#e1e5e9",
+    maxWidth: "75%",
+    marginVertical: 6,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   messageText: {
     fontSize: 16,
-    lineHeight: 20,
-  },
-  myMessageText: {
-    color: "#fff",
-  },
-  otherMessageText: {
-    color: "#1a1a1a",
+    lineHeight: 22,
+    fontWeight: "400",
   },
   timestamp: {
-    fontSize: 11,
-    marginTop: 4,
-  },
-  myTimestamp: {
-    color: "rgba(255,255,255,0.7)",
-    textAlign: "right",
-  },
-  otherTimestamp: {
-    color: "#999",
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: "500",
   },
   translationError: {
-    marginTop: 8,
-    padding: 8,
-    backgroundColor: "rgba(255,59,48,0.1)",
-    borderRadius: 8,
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
   },
   errorText: {
-    color: "#FF3B30",
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: "500",
   },
   retryButton: {
-    marginTop: 4,
+    marginTop: 6,
   },
   retryText: {
-    color: "#007AFF",
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
   },
   messageImage: {
-    width: 200,
-    height: 150,
-    borderRadius: 12,
+    width: 220,
+    height: 160,
+    borderRadius: 14,
   },
   videoPlaceholder: {
-    width: 200,
-    height: 150,
+    width: 220,
+    height: 160,
     backgroundColor: "#000",
-    borderRadius: 12,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -522,41 +597,39 @@ const styles = StyleSheet.create({
     color: "#fff",
     marginTop: 8,
     fontSize: 16,
+    fontWeight: "500",
   },
   inputContainer: {
     flexDirection: "row",
     alignItems: "flex-end",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderTopColor: "#e1e5e9",
+    gap: 8,
   },
   mediaButton: {
-    padding: 8,
-    marginRight: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
   },
   textInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: "#e1e5e9",
-    borderRadius: 20,
+    borderRadius: 22,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     fontSize: 16,
     maxHeight: 100,
+    minHeight: 44,
   },
   sendButton: {
-    backgroundColor: "#007AFF",
+    width: 40,
+    height: 40,
     borderRadius: 20,
-    padding: 8,
-    marginLeft: 8,
     justifyContent: "center",
     alignItems: "center",
-    width: 36,
-    height: 36,
-  },
-  sendButtonDisabled: {
-    backgroundColor: "#ccc",
   },
 });
