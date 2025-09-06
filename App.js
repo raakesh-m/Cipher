@@ -4,7 +4,6 @@ import { createStackNavigator } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
 import { View, ActivityIndicator, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./utils/supabase";
 import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
 
@@ -28,16 +27,6 @@ function AppContent() {
       try {
         // Get initial session
         const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session) {
-          // Check if user wants to stay signed in and try to restore session
-          const keepSignedIn = await AsyncStorage.getItem("keepSignedIn");
-          if (keepSignedIn === "false") {
-            // User chose not to stay signed in, clear any stored session
-            await supabase.auth.signOut();
-          }
-        }
-        
         setSession(session);
         setLoading(false);
       } catch (error) {
@@ -52,19 +41,8 @@ function AppContent() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT') {
-        // Check if user wants to stay signed in
-        const keepSignedIn = await AsyncStorage.getItem("keepSignedIn");
-        if (keepSignedIn === "false") {
-          // User chose not to stay signed in, allow sign out
-          setSession(null);
-        } else {
-          // User wants to stay signed in, but respect explicit sign out from settings
-          setSession(session);
-        }
-      } else {
-        setSession(session);
-      }
+      console.log("Auth event:", event, "Session:", !!session);
+      setSession(session);
     });
 
     return () => subscription.unsubscribe();
@@ -86,7 +64,7 @@ function AppContent() {
   return (
     <SafeAreaProvider>
       <NavigationContainer>
-        <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
+        <StatusBar style={isDark ? "light" : "dark"} translucent={false} backgroundColor={theme.colors.background} />
         <Stack.Navigator screenOptions={{ headerShown: false }}>
         {session ? (
           <>
