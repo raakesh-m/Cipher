@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../utils/supabase";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -107,6 +108,8 @@ export default function ChatListScreen({ navigation }) {
   };
 
   const handleSignOut = async () => {
+    // Clear the keep signed in preference so user stays logged out
+    await AsyncStorage.setItem("keepSignedIn", "false");
     await supabase.auth.signOut();
   };
 

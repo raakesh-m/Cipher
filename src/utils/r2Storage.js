@@ -1,4 +1,4 @@
-import { CLOUDFLARE_R2_BUCKET_NAME, R2_ENDPOINT } from "@env";
+import { EXPO_PUBLIC_CLOUDFLARE_R2_BUCKET_NAME, EXPO_PUBLIC_R2_ENDPOINT } from "@env";
 
 // Upload file to Cloudflare R2
 export const uploadToR2 = async (fileUri, fileName) => {
@@ -34,12 +34,12 @@ export const uploadToR2 = async (fileUri, fileName) => {
 
 // Get public URL for R2 object
 export const getR2Url = (fileName) => {
-  return `${R2_ENDPOINT}/${CLOUDFLARE_R2_BUCKET_NAME}/${fileName}`;
+  return `${EXPO_PUBLIC_R2_ENDPOINT}/${EXPO_PUBLIC_CLOUDFLARE_R2_BUCKET_NAME}/${fileName}`;
 };
 
 // Generate presigned URL for secure upload (implement later if needed)
 export const generatePresignedUrl = async (fileName, contentType) => {
   // This would typically be done on your backend for security
   // For now, we'll use direct upload
-  return `${R2_ENDPOINT}/${CLOUDFLARE_R2_BUCKET_NAME}/${fileName}`;
+  return `${EXPO_PUBLIC_R2_ENDPOINT}/${EXPO_PUBLIC_CLOUDFLARE_R2_BUCKET_NAME}/${fileName}`;
 };

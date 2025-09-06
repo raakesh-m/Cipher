@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../utils/supabase";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -25,6 +26,7 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
 
   const handleAuth = async () => {
     if (!email || !password) {
@@ -80,6 +82,9 @@ export default function AuthScreen() {
         });
 
         if (error) throw error;
+
+        // Save keep signed in preference
+        await AsyncStorage.setItem("keepSignedIn", keepSignedIn.toString());
       }
     } catch (error) {
       Alert.alert("Error", error.message);
@@ -237,6 +242,33 @@ export default function AuthScreen() {
                 </>
               )}
 
+              {!isSignUp && (
+                <TouchableOpacity
+                  style={styles.checkboxContainer}
+                  onPress={() => setKeepSignedIn(!keepSignedIn)}
+                >
+                  <View style={[
+                    styles.checkbox,
+                    {
+                      borderColor: theme.colors.inputBorder,
+                      backgroundColor: keepSignedIn 
+                        ? theme.colors.primary 
+                        : theme.colors.inputBackground,
+                    },
+                  ]}>
+                    {keepSignedIn && (
+                      <Ionicons name="checkmark" size={16} color="#fff" />
+                    )}
+                  </View>
+                  <Text style={[
+                    styles.checkboxLabel,
+                    { color: theme.colors.text }
+                  ]}>
+                    Keep me signed in
+                  </Text>
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity
                 style={[
                   styles.button,
@@ -370,6 +402,24 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   switchText: {
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  checkboxContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    gap: 12,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkboxLabel: {
     fontSize: 15,
     fontWeight: "500",
   },

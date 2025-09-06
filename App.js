@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, Platform } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./utils/supabase";
 import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
 
@@ -22,17 +24,47 @@ function AppContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-    });
+    const initializeAuth = async () => {
+      try {
+        // Get initial session
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          // Check if user wants to stay signed in and try to restore session
+          const keepSignedIn = await AsyncStorage.getItem("keepSignedIn");
+          if (keepSignedIn === "false") {
+            // User chose not to stay signed in, clear any stored session
+            await supabase.auth.signOut();
+          }
+        }
+        
+        setSession(session);
+        setLoading(false);
+      } catch (error) {
+        console.error("Error initializing auth:", error);
+        setLoading(false);
+      }
+    };
+
+    initializeAuth();
 
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        // Check if user wants to stay signed in
+        const keepSignedIn = await AsyncStorage.getItem("keepSignedIn");
+        if (keepSignedIn === "false") {
+          // User chose not to stay signed in, allow sign out
+          setSession(null);
+        } else {
+          // User wants to stay signed in, but respect explicit sign out from settings
+          setSession(session);
+        }
+      } else {
+        setSession(session);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -52,9 +84,10 @@ function AppContent() {
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style={isDark ? "light" : "dark"} />
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <StatusBar style={isDark ? "light" : "dark"} translucent backgroundColor="transparent" />
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
         {session ? (
           <>
             <Stack.Screen name="ChatList" component={ChatListScreen} />
@@ -110,7 +143,8 @@ function AppContent() {
           <Stack.Screen name="Auth" component={AuthScreen} />
         )}
       </Stack.Navigator>
-    </NavigationContainer>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 
