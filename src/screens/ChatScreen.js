@@ -83,7 +83,7 @@ export default function ChatScreen({ route, navigation }) {
         .select(
           `
           *,
-          profiles!messages_sender_id_fkey (
+          profiles!messages_sender_id_profiles_fkey (
             username,
             display_name,
             avatar_url
@@ -204,7 +204,7 @@ export default function ChatScreen({ route, navigation }) {
       const { data: recipientProfile } = await supabase
         .from("profiles")
         .select("preferred_language, gemini_api_key_encrypted")
-        .eq("id", otherUser.id)
+        .eq("id", otherUser.id || otherUser.user_id)
         .single();
 
       if (recipientProfile?.gemini_api_key_encrypted) {

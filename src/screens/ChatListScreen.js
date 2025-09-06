@@ -57,6 +57,7 @@ export default function ChatListScreen({ navigation }) {
           chat_participants!inner (
             user_id,
             profiles!inner (
+              id,
               username,
               display_name,
               avatar_url
@@ -87,7 +88,10 @@ export default function ChatListScreen({ navigation }) {
 
         return {
           id: chat.id,
-          otherUser: otherParticipant?.profiles,
+          otherUser: {
+            ...otherParticipant?.profiles,
+            user_id: otherParticipant?.user_id,
+          },
           latestMessage,
           updatedAt: chat.created_at,
         };
