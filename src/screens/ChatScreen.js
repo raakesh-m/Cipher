@@ -16,9 +16,10 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { supabase } from "../../utils/supabase";
-import { translateMessage } from "../utils/translation";
+import { translateMessage, shouldTranslateMessage } from "../utils/translation";
 import { uploadToR2, getR2Url } from "../utils/r2Storage";
 import { useTheme } from "../contexts/ThemeContext";
+import { sendPushNotification } from "../services/notificationService";
 
 export default function ChatScreen({ route, navigation }) {
   const { theme } = useTheme();
@@ -38,9 +39,14 @@ export default function ChatScreen({ route, navigation }) {
     loadCurrentUser();
     loadMessages();
 
-    // Subscribe to new messages
+    // Subscribe to new messages with better error handling
     const subscription = supabase
-      .channel(`messages:${chatId}`)
+      .channel(`messages:${chatId}`, {
+        config: {
+          broadcast: { self: false },
+          presence: { key: currentUser?.id },
+        },
+      })
       .on(
         "postgres_changes",
         {
@@ -50,11 +56,32 @@ export default function ChatScreen({ route, navigation }) {
           filter: `chat_id=eq.${chatId}`,
         },
         (payload) => {
+          console.log('📨 Real-time message received:', payload.new);
           const newMessage = payload.new;
           handleNewMessage(newMessage);
         }
       )
-      .subscribe();
+      .on('system', {}, (payload) => {
+        console.log('📡 Real-time system event:', payload);
+        if (payload.status === 'CHANNEL_ERROR') {
+          console.error('❌ Real-time channel error:', payload);
+          // Attempt to resubscribe after error
+          setTimeout(() => {
+            console.log('🔄 Attempting to reconnect real-time...');
+            subscription.unsubscribe();
+            // Reload the component to reinitialize subscription
+            loadMessages();
+          }, 2000);
+        }
+      })
+      .subscribe((status) => {
+        console.log('🔌 Real-time subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to real-time messages for chat:', chatId);
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Failed to subscribe to real-time messages');
+        }
+      });
 
     return () => {
       subscription.unsubscribe();
@@ -104,15 +131,29 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const handleNewMessage = async (newMessage) => {
-    // If it's not from the current user, try to translate it
-    if (
-      newMessage.sender_id !== currentUser?.id &&
-      newMessage.message_type === "text"
-    ) {
-      await translateIncomingMessage(newMessage);
-    } else {
-      setMessages((prev) => [...prev, newMessage]);
-    }
+    console.log('🆕 Processing new message:', newMessage);
+    
+    // Check if message already exists to prevent duplicates
+    setMessages((prev) => {
+      const messageExists = prev.some(msg => msg.id === newMessage.id);
+      if (messageExists) {
+        console.log('⚠️ Duplicate message detected, skipping:', newMessage.id);
+        return prev;
+      }
+      
+      // If it's not from the current user, try to translate it
+      if (
+        newMessage.sender_id !== currentUser?.id &&
+        newMessage.message_type === "text"
+      ) {
+        console.log('🔄 Translating incoming message...');
+        translateIncomingMessage(newMessage);
+        return [...prev, newMessage];
+      } else {
+        console.log('✅ Adding message to list:', newMessage.id);
+        return [...prev, newMessage];
+      }
+    });
 
     // Scroll to bottom
     setTimeout(() => {
@@ -122,14 +163,28 @@ export default function ChatScreen({ route, navigation }) {
 
   const translateIncomingMessage = async (message) => {
     if (!currentUser?.gemini_api_key_encrypted || message.content_translated) {
-      setMessages((prev) => [...prev, message]);
+      console.log('ℹ️ Translation skipped - no API key or already translated');
       return;
     }
 
     try {
+      // Check if translation is needed based on user's known languages
+      const targetLanguage = await shouldTranslateMessage(
+        message.content_original,
+        currentUser.known_languages,
+        currentUser.preferred_language,
+        currentUser.gemini_api_key_encrypted
+      );
+
+      // If no translation needed, just add the message
+      if (!targetLanguage) {
+        setMessages((prev) => [...prev, message]);
+        return;
+      }
+
       const translatedContent = await translateMessage(
         message.content_original,
-        currentUser.preferred_language,
+        targetLanguage,
         currentUser.gemini_api_key_encrypted
       );
 
@@ -152,6 +207,7 @@ export default function ChatScreen({ route, navigation }) {
             : msg
         )
       );
+      console.log('✅ Message translated successfully:', message.id);
     } catch (error) {
       console.error("Translation failed:", error);
 
@@ -175,6 +231,7 @@ export default function ChatScreen({ route, navigation }) {
             : msg
         )
       );
+      console.log('❌ Translation failed for message:', message.id, error.message);
     }
   };
 
@@ -198,31 +255,79 @@ export default function ChatScreen({ route, navigation }) {
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error('❌ Failed to insert message:', insertError);
+        throw insertError;
+      }
+      
+      console.log('✅ Message inserted successfully:', messageData.id);
 
-      // Then translate for the recipient if they have a translation key
+      // Get recipient profile for translation and notifications
       const { data: recipientProfile } = await supabase
         .from("profiles")
-        .select("preferred_language, gemini_api_key_encrypted")
+        .select("known_languages, preferred_language, gemini_api_key_encrypted, expo_push_token, display_name, username")
         .eq("id", otherUser.id || otherUser.user_id)
         .single();
 
-      if (recipientProfile?.gemini_api_key_encrypted) {
+      // Translate for the recipient if they have a translation key and known languages
+      let finalMessageContent = messageText;
+      if (recipientProfile?.gemini_api_key_encrypted && recipientProfile?.known_languages?.length > 0) {
         try {
-          const translatedContent = await translateMessage(
+          // Check if recipient needs translation based on their known languages
+          const targetLanguage = await shouldTranslateMessage(
             messageText,
+            recipientProfile.known_languages,
             recipientProfile.preferred_language,
             recipientProfile.gemini_api_key_encrypted
           );
 
-          await supabase
-            .from("messages")
-            .update({ content_translated: translatedContent })
-            .eq("id", messageData.id);
+          if (targetLanguage) {
+            const translatedContent = await translateMessage(
+              messageText,
+              targetLanguage,
+              recipientProfile.gemini_api_key_encrypted
+            );
+
+            await supabase
+              .from("messages")
+              .update({ content_translated: translatedContent })
+              .eq("id", messageData.id);
+            
+            finalMessageContent = translatedContent;
+          }
         } catch (translationError) {
           console.error("Translation failed for recipient:", translationError);
           // Message still sent, just not translated
         }
+      }
+
+      // Send push notification to recipient
+      if (recipientProfile?.expo_push_token) {
+        try {
+          const senderName = currentUser?.display_name || currentUser?.username || 'Someone';
+          console.log('📲 Sending push notification to recipient...');
+          await sendPushNotification(
+            recipientProfile.expo_push_token,
+            `Message from ${senderName}`,
+            finalMessageContent,
+            {
+              screen: 'Chat',
+              chatId: chatId,
+              otherUser: {
+                id: currentUser.id,
+                user_id: currentUser.id,
+                display_name: senderName,
+                username: currentUser.username,
+              }
+            }
+          );
+          console.log('✅ Push notification sent successfully');
+        } catch (notificationError) {
+          console.error("❌ Failed to send push notification:", notificationError);
+          // Don't fail message sending if notification fails
+        }
+      } else {
+        console.log('ℹ️ No push token found for recipient, skipping notification');
       }
     } catch (error) {
       console.error("Error sending message:", error);

@@ -268,6 +268,18 @@ export default function ChatListScreen({ navigation }) {
                 borderColor: theme.colors.border,
               },
             ]}
+            onPress={() => navigation.navigate("Profile")}
+          >
+            <Ionicons name="person-outline" size={20} color={theme.colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.headerButton,
+              {
+                backgroundColor: theme.colors.background,
+                borderColor: theme.colors.border,
+              },
+            ]}
             onPress={() => navigation.navigate("Settings")}
           >
             <Ionicons name="settings-outline" size={20} color={theme.colors.primary} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createStackNavigator } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
@@ -6,12 +6,19 @@ import { View, ActivityIndicator, Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { supabase } from "./utils/supabase";
 import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
+import { 
+  registerForPushNotificationsAsync,
+  addNotificationResponseListener,
+  addNotificationReceivedListener,
+  clearBadge,
+} from "./src/services/notificationService";
 
 // Import screens
 import AuthScreen from "./src/screens/AuthScreen";
 import ChatListScreen from "./src/screens/ChatListScreen";
 import ChatScreen from "./src/screens/ChatScreen";
 import ThemedSettingsScreen from "./src/screens/ThemedSettingsScreen";
+import ProfileScreen from "./src/screens/ProfileScreen";
 import UserSearchScreen from "./src/screens/UserSearchScreen";
 import MediaViewerScreen from "./src/screens/MediaViewerScreen";
 
@@ -21,6 +28,7 @@ function AppContent() {
   const { theme, isDark } = useTheme();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  const navigationRef = useRef();
 
   useEffect(() => {
     const initializeAuth = async () => {
@@ -29,6 +37,11 @@ function AppContent() {
         const { data: { session } } = await supabase.auth.getSession();
         setSession(session);
         setLoading(false);
+
+        // Initialize notifications if user is logged in
+        if (session) {
+          await initializeNotifications();
+        }
       } catch (error) {
         console.error("Error initializing auth:", error);
         setLoading(false);
@@ -43,10 +56,43 @@ function AppContent() {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log("Auth event:", event, "Session:", !!session);
       setSession(session);
+      
+      if (session && event === 'SIGNED_IN') {
+        await initializeNotifications();
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  const initializeNotifications = async () => {
+    try {
+      // Register for push notifications
+      await registerForPushNotificationsAsync();
+
+      // Handle notification taps (when app is closed/background)
+      const responseListener = addNotificationResponseListener(response => {
+        const { screen, chatId, otherUser } = response.notification.request.content.data;
+        
+        if (screen === 'Chat' && chatId && otherUser && navigationRef.current) {
+          navigationRef.current.navigate('Chat', { chatId, otherUser });
+        }
+      });
+
+      // Handle notifications received while app is in foreground
+      const receivedListener = addNotificationReceivedListener(notification => {
+        // Clear badge when notification is received in foreground
+        clearBadge();
+      });
+
+      return () => {
+        responseListener && responseListener.remove();
+        receivedListener && receivedListener.remove();
+      };
+    } catch (error) {
+      console.error('Error initializing notifications:', error);
+    }
+  };
 
   if (loading) {
     return (
@@ -63,7 +109,7 @@ function AppContent() {
 
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <StatusBar style={isDark ? "light" : "dark"} translucent={false} backgroundColor={theme.colors.background} />
         <Stack.Navigator screenOptions={{ headerShown: false }}>
         {session ? (
@@ -87,6 +133,13 @@ function AppContent() {
             <Stack.Screen
               name="Settings"
               component={ThemedSettingsScreen}
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="Profile"
+              component={ProfileScreen}
               options={{
                 headerShown: false,
               }}

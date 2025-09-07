@@ -23,11 +23,16 @@ export const decryptApiKey = async (encryptedKey) => {
   }
 };
 
-export const translateMessage = async (
+export const shouldTranslateMessage = async (
   text,
-  targetLanguage,
+  knownLanguages,
+  preferredLanguage,
   encryptedApiKey
 ) => {
+  if (!knownLanguages || knownLanguages.length === 0) {
+    return preferredLanguage || "English"; // Default fallback
+  }
+
   try {
     const apiKey = await decryptApiKey(encryptedApiKey);
 
@@ -43,9 +48,76 @@ export const translateMessage = async (
             {
               parts: [
                 {
-                  text: `Translate the following text to ${getLanguageName(
-                    targetLanguage
-                  )}. Only return the translated text, nothing else:\n\n${text}`,
+                  text: `Analyze this text: "${text}"
+
+User's known languages: ${knownLanguages.join(", ")}
+User's preferred language: ${preferredLanguage}
+
+Simple rules:
+1. If the text is in any of the user's known languages → return "NO_TRANSLATION_NEEDED"
+2. If the text is in an unknown language → return the user's preferred language
+
+Only return either "NO_TRANSLATION_NEEDED" or the preferred language name.
+
+Examples:
+- Text in English, known: ["English", "Tamil"] → "NO_TRANSLATION_NEEDED"
+- Text in German, known: ["English", "Tamil"], preferred: "English" → "English"
+- Text in Tamil, known: ["Tamil", "Hindi"], preferred: "Tamil" → "NO_TRANSLATION_NEEDED"`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 50,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error("Language detection failed, using preferred language");
+      return preferredLanguage || "English";
+    }
+
+    const data = await response.json();
+    const result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    
+    if (result === "NO_TRANSLATION_NEEDED") {
+      return null; // Don't translate
+    }
+    
+    return result || preferredLanguage || "English";
+  } catch (error) {
+    console.error("Error detecting language:", error);
+    return preferredLanguage || "English"; // Fallback to preferred language
+  }
+};
+
+export const translateMessage = async (
+  text,
+  targetLanguage,
+  encryptedApiKey
+) => {
+  try {
+    const apiKey = await decryptApiKey(encryptedApiKey);
+
+    // Get the language name - if not in our map, use it directly (AI will understand)
+    const languageName = getLanguageName(targetLanguage);
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Translate the following text to ${languageName}. Only return the translated text, nothing else. If the language is not clear, treat it as the language name and do your best:\n\n${text}`,
                 },
               ],
             },
@@ -90,58 +162,37 @@ export const translateMessage = async (
 };
 
 const getLanguageName = (code) => {
+  // Common language codes for quick lookup
   const languageMap = {
     en: "English",
-    es: "Spanish",
+    es: "Spanish", 
     fr: "French",
     de: "German",
     it: "Italian",
-    pt: "Portuguese",
+    pt: "Portuguese", 
     ru: "Russian",
     ja: "Japanese",
     ko: "Korean",
-    zh: "Chinese (Simplified)",
+    zh: "Chinese",
     ar: "Arabic",
     hi: "Hindi",
+    ta: "Tamil",
+    te: "Telugu",
+    bn: "Bengali",
+    ur: "Urdu",
     th: "Thai",
     vi: "Vietnamese",
+    tr: "Turkish",
+    pl: "Polish",
     nl: "Dutch",
     sv: "Swedish",
     da: "Danish",
     no: "Norwegian",
     fi: "Finnish",
-    pl: "Polish",
-    cs: "Czech",
-    hu: "Hungarian",
-    ro: "Romanian",
-    tr: "Turkish",
-    he: "Hebrew",
-    fa: "Persian",
-    ur: "Urdu",
-    bn: "Bengali",
-    ta: "Tamil",
-    te: "Telugu",
-    mr: "Marathi",
-    gu: "Gujarati",
-    kn: "Kannada",
-    ml: "Malayalam",
-    or: "Odia",
-    pa: "Punjabi",
-    as: "Assamese",
-    ne: "Nepali",
-    si: "Sinhala",
-    my: "Myanmar",
-    km: "Khmer",
-    lo: "Lao",
-    ka: "Georgian",
-    am: "Amharic",
-    sw: "Swahili",
-    yo: "Yoruba",
-    ig: "Igbo",
-    ha: "Hausa",
-    zu: "Zulu",
-    af: "Afrikaans",
+    // Add more as needed...
   };
 
+  // If we have a mapping, use it. Otherwise, return the code itself 
+  // (AI will understand language names or codes directly)
   return languageMap[code] || code;
 };

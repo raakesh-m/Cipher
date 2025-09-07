@@ -510,6 +510,22 @@ const ThemedSettingsScreen = ({ navigation }) => {
               <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Profile</Text>
             </View>
 
+            <TouchableOpacity
+              style={[styles.settingRow, { borderColor: theme.colors.divider }]}
+              onPress={() => navigation.navigate("Profile")}
+              activeOpacity={0.7}
+            >
+              <View style={styles.settingContent}>
+                <View style={styles.settingInfo}>
+                  <Text style={[styles.settingLabel, { color: theme.colors.text }]}>Manage Profile</Text>
+                  <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
+                    Edit picture, bio, and personal information
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+              </View>
+            </TouchableOpacity>
+
             <View style={styles.inputGroup}>
               <Text style={[styles.label, { color: theme.colors.text }]}>Display Name</Text>
               <TextInput
