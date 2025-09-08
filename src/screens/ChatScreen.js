@@ -21,6 +21,14 @@ import { uploadToR2, getR2Url } from "../utils/r2Storage";
 import { useTheme } from "../contexts/ThemeContext";
 import { sendPushNotification } from "../services/notificationService";
 
+// New enhanced services
+import realtimeService from '../services/realtimeService';
+import messageStatusService, { MessageStatus } from '../services/messageStatusService';
+import typingService from '../services/typingService';
+import MessageBubble from '../components/MessageBubble';
+import TypingIndicator from '../components/TypingIndicator';
+import ConnectionStatus from '../components/ConnectionStatus';
+
 export default function ChatScreen({ route, navigation }) {
   const { theme } = useTheme();
   const { chatId, otherUser } = route.params;
@@ -29,64 +37,54 @@ export default function ChatScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const [connectionStatus, setConnectionStatus] = useState('connecting');
+  const [profilesMap, setProfilesMap] = useState({});
   const flatListRef = useRef(null);
+  const previousInputText = useRef("");
+  const typingTimeout = useRef(null);
 
   useEffect(() => {
     navigation.setOptions({
       title: otherUser?.display_name || otherUser?.username || "Chat",
     });
 
-    loadCurrentUser();
-    loadMessages();
-
-    // Subscribe to new messages with better error handling
-    const subscription = supabase
-      .channel(`messages:${chatId}`, {
-        config: {
-          broadcast: { self: false },
-          presence: { key: currentUser?.id },
-        },
-      })
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `chat_id=eq.${chatId}`,
-        },
-        (payload) => {
-          console.log('📨 Real-time message received:', payload.new);
-          const newMessage = payload.new;
-          handleNewMessage(newMessage);
-        }
-      )
-      .on('system', {}, (payload) => {
-        console.log('📡 Real-time system event:', payload);
-        if (payload.status === 'CHANNEL_ERROR') {
-          console.error('❌ Real-time channel error:', payload);
-          // Attempt to resubscribe after error
-          setTimeout(() => {
-            console.log('🔄 Attempting to reconnect real-time...');
-            subscription.unsubscribe();
-            // Reload the component to reinitialize subscription
-            loadMessages();
-          }, 2000);
-        }
-      })
-      .subscribe((status) => {
-        console.log('🔌 Real-time subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Successfully subscribed to real-time messages for chat:', chatId);
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Failed to subscribe to real-time messages');
-        }
-      });
+    initializeChat();
 
     return () => {
-      subscription.unsubscribe();
+      // Cleanup all services
+      realtimeService.unsubscribe(`messages_${chatId}`);
+      realtimeService.unsubscribe(`instant_messages_${chatId}`);
+      typingService.unsubscribeFromTyping(chatId, handleTypingUsersChange);
+      messageStatusService.cleanup();
     };
   }, [chatId]);
+
+  const initializeChat = async () => {
+    await loadCurrentUser();
+    await loadMessages();
+    
+    // Subscribe to enhanced realtime messages (database updates)
+    realtimeService.subscribe(`messages_${chatId}`, {
+      channelName: `messages:${chatId}`,
+      table: 'messages',
+      event: 'INSERT',
+      filter: `chat_id=eq.${chatId}`,
+      callback: handleNewMessage,
+    });
+
+    // Subscribe to instant messages (broadcasts for immediate delivery)
+    realtimeService.subscribe(`instant_messages_${chatId}`, {
+      channelName: `messages:${chatId}`,  // Use same channel as database messages
+      broadcastCallback: handleInstantMessage,
+    });
+
+    setConnectionStatus('connected');
+  };
+
+  const handleTypingUsersChange = (typingUserIds) => {
+    setTypingUsers(typingUserIds);
+  };
 
   const loadCurrentUser = async () => {
     const {
@@ -99,7 +97,21 @@ export default function ChatScreen({ route, navigation }) {
         .eq("id", user.id)
         .single();
 
-      setCurrentUser({ ...user, ...profile });
+      const currentUserProfile = { ...user, ...profile };
+      setCurrentUser(currentUserProfile);
+
+      // Build profiles map for typing indicators
+      setProfilesMap(prev => ({
+        ...prev,
+        [user.id]: profile,
+        [otherUser?.user_id || otherUser?.id]: otherUser
+      }));
+
+      // Subscribe to typing indicators after currentUser is set
+      typingService.subscribeToTyping(chatId, user.id, handleTypingUsersChange);
+
+      // Mark chat as read when entering
+      await messageStatusService.markChatAsRead(chatId, user.id);
     }
   };
 
@@ -111,6 +123,7 @@ export default function ChatScreen({ route, navigation }) {
           `
           *,
           profiles!messages_sender_id_profiles_fkey (
+            id,
             username,
             display_name,
             avatar_url
@@ -122,7 +135,18 @@ export default function ChatScreen({ route, navigation }) {
 
       if (error) throw error;
 
-      setMessages(data || []);
+      // Process messages with status
+      const processedMessages = (data || []).map(msg => ({
+        ...msg,
+        status: msg.status || MessageStatus.SENT, // Default status
+      }));
+
+      setMessages(processedMessages);
+
+      // Scroll to bottom after loading
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 100);
     } catch (error) {
       console.error("Error loading messages:", error);
     } finally {
@@ -130,32 +154,122 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  const handleNewMessage = async (newMessage) => {
-    console.log('🆕 Processing new message:', newMessage);
+  // Handle instant messages (broadcast - immediate delivery like typing)
+  const handleInstantMessage = (payload) => {
+    console.log('🎯 handleInstantMessage called with payload:', {
+      event: payload.event,
+      hasPayload: !!payload.payload,
+      payloadKeys: payload.payload ? Object.keys(payload.payload) : []
+    });
     
-    // Check if message already exists to prevent duplicates
+    const messageData = payload.payload;
+    console.log('⚡ Instant message received:', {
+      temp_id: messageData?.temp_id,
+      sender_id: messageData?.sender_id,
+      content: messageData?.content_original?.substring(0, 50) + '...',
+      chat_id: messageData?.chat_id
+    });
+    console.log('🔍 Current user ID:', currentUser?.id);
+    console.log('🔍 Message sender ID:', messageData?.sender_id);
+    console.log('🔍 Are IDs equal?', messageData?.sender_id === currentUser?.id);
+    
+    // Skip own messages - they're already handled optimistically
+    if (messageData?.sender_id === currentUser?.id) {
+      console.log('⚠️ Skipping own instant message (already shown optimistically):', messageData.temp_id);
+      return;
+    }
+    
+    console.log('✅ Processing incoming instant message from other user');
+
+    // Add instant message to state immediately
     setMessages((prev) => {
-      const messageExists = prev.some(msg => msg.id === newMessage.id);
+      const messageExists = prev.some(msg => 
+        msg.id === messageData.id || msg.temp_id === messageData.temp_id
+      );
       if (messageExists) {
-        console.log('⚠️ Duplicate message detected, skipping:', newMessage.id);
+        console.log('⚠️ Duplicate instant message detected, skipping:', messageData.temp_id);
         return prev;
       }
+
+      console.log('⚡ Adding instant message:', messageData.temp_id);
       
-      // If it's not from the current user, try to translate it
-      if (
-        newMessage.sender_id !== currentUser?.id &&
-        newMessage.message_type === "text"
-      ) {
-        console.log('🔄 Translating incoming message...');
-        translateIncomingMessage(newMessage);
-        return [...prev, newMessage];
-      } else {
-        console.log('✅ Adding message to list:', newMessage.id);
-        return [...prev, newMessage];
+      // Add with instant delivery status
+      const instantMessage = {
+        ...messageData,
+        status: 'delivered',
+        is_instant: true
+      };
+
+      // If it's a text message, try to translate it
+      if (messageData.message_type === "text") {
+        console.log('🔄 Will translate instant message...');
+        translateIncomingMessage(instantMessage);
       }
+
+      return [...prev, instantMessage];
     });
 
     // Scroll to bottom
+    setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
+    }, 50);
+  };
+
+  // Handle database messages (slower backup for reliability)
+  const handleNewMessage = async (newMessage) => {
+    console.log('🆕 Processing database message:', newMessage);
+    
+    // Skip own messages - they're already handled optimistically
+    if (newMessage.sender_id === currentUser?.id) {
+      console.log('⚠️ Skipping own database message:', newMessage.id);
+      return;
+    }
+    
+    // Check if instant message already exists - if so, update it with database ID
+    setMessages((prev) => {
+      // Look for matching instant message first
+      const instantMessageIndex = prev.findIndex(msg => 
+        msg.temp_id === newMessage.temp_id && msg.is_instant
+      );
+      
+      if (instantMessageIndex !== -1) {
+        // Update instant message with database info
+        console.log('🔄 Updating instant message with database info:', newMessage.id);
+        const updated = [...prev];
+        updated[instantMessageIndex] = {
+          ...updated[instantMessageIndex],
+          ...newMessage,
+          id: newMessage.id,
+          is_instant: false,
+          status: newMessage.status || 'delivered'
+        };
+        return updated;
+      }
+
+      // Check if message already exists by ID
+      const messageExists = prev.some(msg => msg.id === newMessage.id);
+      if (messageExists) {
+        console.log('⚠️ Duplicate database message detected, skipping:', newMessage.id);
+        return prev;
+      }
+      
+      // Add as new message if no instant version exists
+      console.log('🆕 Adding new database message:', newMessage.id);
+      
+      const messageWithDefaults = {
+        ...newMessage,
+        content_original: newMessage.content_original || newMessage.content || '',
+        status: newMessage.status || 'delivered'
+      };
+      
+      if (newMessage.message_type === "text") {
+        translateIncomingMessage(messageWithDefaults);
+      }
+      
+      return [...prev, messageWithDefaults];
+    });
+
+    // Scroll to bottom only if this is a truly new message
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
@@ -240,40 +354,118 @@ export default function ChatScreen({ route, navigation }) {
 
     setSending(true);
     const messageText = inputText.trim();
+    const recipientId = otherUser.id || otherUser.user_id;
+    
+    // Stop typing indicator
+    if (currentUser?.id) {
+      await typingService.stopTyping(chatId, currentUser.id);
+    }
+    
+    // Clear input immediately for better UX
     setInputText("");
+    previousInputText.current = "";
 
     try {
-      // First, insert the message in original language
-      const { data: messageData, error: insertError } = await supabase
-        .from("messages")
-        .insert({
-          chat_id: chatId,
-          sender_id: currentUser.id,
-          content_original: messageText,
-          message_type: "text",
-        })
-        .select()
-        .single();
+      // Add optimistic message first (instant display)
+      const tempId = `temp_${Date.now()}_${Math.random()}`;
+      const optimisticMessage = {
+        id: tempId,
+        temp_id: tempId,
+        chat_id: chatId,
+        content_original: messageText,
+        sender_id: currentUser.id,
+        message_type: 'text',
+        status: 'sending',
+        created_at: new Date().toISOString(),
+        profiles: currentUser
+      };
 
-      if (insertError) {
-        console.error('❌ Failed to insert message:', insertError);
-        throw insertError;
-      }
+      setMessages(prev => [...prev, optimisticMessage]);
+
+      // 🚀 INSTANT DELIVERY: Broadcast message immediately (like typing)
+      console.log('🚀 Broadcasting instant message:', {
+        tempId,
+        senderId: currentUser.id,
+        chatId,
+        content: messageText
+      });
       
-      console.log('✅ Message inserted successfully:', messageData.id);
+      await realtimeService.sendInstantMessage(`messages:${chatId}`, {
+        ...optimisticMessage,
+        sender_profile: currentUser
+      });
 
+      // Update local status to sent immediately after broadcast
+      setMessages(prev => prev.map(msg => 
+        msg.temp_id === tempId 
+          ? { ...msg, status: 'sent' }
+          : msg
+      ));
+
+      // 💾 BACKGROUND: Save to database (no await to avoid blocking)
+      messageStatusService.sendMessage(
+        chatId,
+        messageText,
+        currentUser.id,
+        recipientId,
+        'text'
+      ).then(newMessage => {
+        // Update with database ID when ready
+        setMessages(prev => prev.map(msg => 
+          msg.temp_id === tempId 
+            ? { ...newMessage, profiles: currentUser, status: 'delivered' }
+            : msg
+        ));
+
+        // Handle translation and notifications in background
+        handleMessageTranslationAndNotification(newMessage, messageText, recipientId);
+      }).catch(error => {
+        console.error('❌ Background database save failed:', error);
+        // Update status to failed if database save fails
+        setMessages(prev => prev.map(msg => 
+          msg.temp_id === tempId 
+            ? { ...msg, status: 'failed' }
+            : msg
+        ));
+      });
+
+      // Scroll to bottom immediately (instant like typing)
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 50);
+
+    } catch (error) {
+      console.error('❌ Failed to send instant message:', error);
+      
+      // Update message status to failed
+      setMessages(prev => prev.map(msg => 
+        msg.temp_id && msg.status === 'sending'
+          ? { ...msg, status: 'failed' }
+          : msg
+      ));
+      
+      Alert.alert('Error', 'Failed to send message. Please try again.');
+      
+      // Restore input text on error
+      setInputText(messageText);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleMessageTranslationAndNotification = async (messageData, messageText, recipientId) => {
+    try {
       // Get recipient profile for translation and notifications
       const { data: recipientProfile } = await supabase
         .from("profiles")
         .select("known_languages, preferred_language, gemini_api_key_encrypted, expo_push_token, display_name, username")
-        .eq("id", otherUser.id || otherUser.user_id)
+        .eq("id", recipientId)
         .single();
 
-      // Translate for the recipient if they have a translation key and known languages
+      // Handle translation
       let finalMessageContent = messageText;
       if (recipientProfile?.gemini_api_key_encrypted && recipientProfile?.known_languages?.length > 0) {
         try {
-          // Check if recipient needs translation based on their known languages
           const targetLanguage = await shouldTranslateMessage(
             messageText,
             recipientProfile.known_languages,
@@ -297,15 +489,13 @@ export default function ChatScreen({ route, navigation }) {
           }
         } catch (translationError) {
           console.error("Translation failed for recipient:", translationError);
-          // Message still sent, just not translated
         }
       }
 
-      // Send push notification to recipient
+      // Send push notification
       if (recipientProfile?.expo_push_token) {
         try {
           const senderName = currentUser?.display_name || currentUser?.username || 'Someone';
-          console.log('📲 Sending push notification to recipient...');
           await sendPushNotification(
             recipientProfile.expo_push_token,
             `Message from ${senderName}`,
@@ -321,20 +511,92 @@ export default function ChatScreen({ route, navigation }) {
               }
             }
           );
-          console.log('✅ Push notification sent successfully');
         } catch (notificationError) {
           console.error("❌ Failed to send push notification:", notificationError);
-          // Don't fail message sending if notification fails
         }
-      } else {
-        console.log('ℹ️ No push token found for recipient, skipping notification');
       }
     } catch (error) {
-      console.error("Error sending message:", error);
-      Alert.alert("Error", "Failed to send message");
-    } finally {
-      setSending(false);
+      console.error('Error handling message translation/notification:', error);
     }
+  };
+
+  // Handle text input changes for typing indicators
+  const handleTextChange = (text) => {
+    setInputText(text);
+    
+    if (currentUser?.id) {
+      // Handle typing indicators
+      typingService.handleTextChange(chatId, currentUser.id, text, previousInputText.current);
+      previousInputText.current = text;
+    }
+
+    // Clear any existing typing timeout
+    if (typingTimeout.current) {
+      clearTimeout(typingTimeout.current);
+    }
+
+    // Set new timeout to stop typing after 3 seconds
+    if (text.trim().length > 0) {
+      typingTimeout.current = setTimeout(() => {
+        if (currentUser?.id) {
+          typingService.stopTyping(chatId, currentUser.id);
+        }
+      }, 3000);
+    }
+  };
+
+  // Handle message retry (for failed messages)
+  const handleRetryMessage = async (message) => {
+    if (message.temp_id) {
+      // Retry sending the message
+      try {
+        setSending(true);
+        await messageStatusService.sendMessage(
+          chatId,
+          message.content,
+          currentUser.id,
+          otherUser.id || otherUser.user_id,
+          message.message_type || 'text'
+        );
+
+        // Remove failed message from list
+        setMessages(prev => prev.filter(msg => msg.temp_id !== message.temp_id));
+      } catch (error) {
+        console.error('Retry failed:', error);
+        Alert.alert('Error', 'Failed to resend message');
+      } finally {
+        setSending(false);
+      }
+    }
+  };
+
+  const renderMessage = ({ item, index }) => {
+    const isOwnMessage = item.sender_id === currentUser?.id;
+    const showTimestamp = index === 0 || 
+      (messages[index - 1] && 
+       new Date(item.created_at).getDate() !== new Date(messages[index - 1].created_at).getDate());
+
+    return (
+      <MessageBubble
+        message={item}
+        isOwnMessage={isOwnMessage}
+        onRetry={() => handleRetryMessage(item)}
+        onLongPress={() => {
+          // Add message actions (copy, delete, etc.)
+          Alert.alert(
+            'Message Options',
+            'What would you like to do?',
+            [
+              { text: 'Copy', onPress: () => {
+                // Copy to clipboard logic
+              }},
+              { text: 'Cancel', style: 'cancel' }
+            ]
+          );
+        }}
+        showTimestamp={showTimestamp}
+      />
+    );
   };
 
   const pickImage = async () => {
@@ -420,112 +682,6 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  const renderMessage = ({ item }) => {
-    const isFromMe = item.sender_id === currentUser?.id;
-    const displayContent = isFromMe
-      ? item.content_original
-      : item.content_translated || item.content_original;
-
-    return (
-      <View
-        style={[
-          styles.messageContainer,
-          isFromMe ? {
-            alignSelf: "flex-end",
-            backgroundColor: theme.colors.primary,
-            ...theme.shadows.sm,
-          } : {
-            alignSelf: "flex-start",
-            backgroundColor: theme.colors.card,
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-            ...theme.shadows.sm,
-          },
-        ]}
-      >
-        {item.message_type === "text" ? (
-          <View>
-            <Text
-              style={[
-                styles.messageText,
-                {
-                  color: isFromMe ? "#fff" : theme.colors.text,
-                },
-              ]}
-            >
-              {displayContent}
-            </Text>
-            {!isFromMe && item.translation_failed && (
-              <View style={[
-                styles.translationError,
-                {
-                  backgroundColor: theme.colors.error + '20',
-                  borderColor: theme.colors.error + '40',
-                }
-              ]}>
-                <Text style={[
-                  styles.errorText,
-                  { color: theme.colors.error }
-                ]}>
-                  Translation failed - API limit reached
-                </Text>
-                <TouchableOpacity
-                  onPress={() =>
-                    retryTranslation(item.id, item.content_original)
-                  }
-                  style={styles.retryButton}
-                >
-                  <Text style={[
-                    styles.retryText,
-                    { color: theme.colors.primary }
-                  ]}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        ) : (
-          <TouchableOpacity
-            onPress={() =>
-              navigation.navigate("MediaViewer", {
-                mediaUrl: getR2Url(item.media_url),
-                mediaType: item.message_type,
-              })
-            }
-          >
-            {item.message_type === "image" ? (
-              <Image
-                source={{ uri: getR2Url(item.media_url) }}
-                style={styles.messageImage}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={styles.videoPlaceholder}>
-                <Ionicons name="play-circle" size={48} color="#fff" />
-                <Text style={styles.videoText}>Video</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        )}
-
-        <Text
-          style={[
-            styles.timestamp,
-            {
-              color: isFromMe 
-                ? "rgba(255,255,255,0.7)" 
-                : theme.colors.textTertiary,
-              textAlign: isFromMe ? "right" : "left",
-            },
-          ]}
-        >
-          {new Date(item.created_at).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </Text>
-      </View>
-    );
-  };
 
   if (loading) {
     return (
@@ -549,6 +705,7 @@ export default function ChatScreen({ route, navigation }) {
       styles.container,
       { backgroundColor: theme.colors.background }
     ]}>
+      <ConnectionStatus />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
@@ -557,7 +714,7 @@ export default function ChatScreen({ route, navigation }) {
           ref={flatListRef}
           data={messages}
           renderItem={renderMessage}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.id || item.temp_id || `msg_${Date.now()}`}
           contentContainerStyle={[
             styles.messagesList,
             { backgroundColor: theme.colors.background }
@@ -566,6 +723,12 @@ export default function ChatScreen({ route, navigation }) {
             flatListRef.current?.scrollToEnd({ animated: true })
           }
           showsVerticalScrollIndicator={false}
+          ListFooterComponent={() => (
+            <TypingIndicator 
+              typingUsers={typingUsers} 
+              profilesMap={profilesMap} 
+            />
+          )}
         />
 
         <View style={[
@@ -598,11 +761,17 @@ export default function ChatScreen({ route, navigation }) {
               },
             ]}
             value={inputText}
-            onChangeText={setInputText}
+            onChangeText={handleTextChange}
             placeholder="Type a message..."
             placeholderTextColor={theme.colors.inputPlaceholder}
             multiline
             maxLength={1000}
+            onFocus={() => {
+              // Mark messages as read when user focuses input
+              if (currentUser?.id) {
+                messageStatusService.markChatAsRead(chatId, currentUser.id);
+              }
+            }}
           />
 
           <TouchableOpacity
