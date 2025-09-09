@@ -15,14 +15,14 @@ class MessageStatusService {
   }
 
   // Send message with status tracking
-  async sendMessage(chatId, content, senderId, recipientId, messageType = 'text') {
-    const tempId = `temp_${Date.now()}_${Math.random()}`;
+  async sendMessage(chatId, content, senderId, recipientId, messageType = 'text', tempId = null) {
+    const messageId = tempId || `temp_${Date.now()}_${Math.random()}`;
     
     try {
       // Create optimistic message locally first
       const optimisticMessage = {
-        id: tempId,
-        temp_id: tempId,
+        id: messageId,
+        temp_id: messageId,
         chat_id: chatId,
         content_original: content,
         sender_id: senderId,
@@ -33,7 +33,7 @@ class MessageStatusService {
       };
 
       // Notify callback about sending status
-      this.notifyStatusChange(tempId, MessageStatus.SENDING, optimisticMessage);
+      this.notifyStatusChange(messageId, MessageStatus.SENDING, optimisticMessage);
 
       // Insert into database
       const { data: newMessage, error } = await supabase
@@ -45,6 +45,7 @@ class MessageStatusService {
           recipient_id: recipientId,
           message_type: messageType,
           status: MessageStatus.SENT,
+          temp_id: messageId,
           created_at: new Date().toISOString()
         })
         .select(`
@@ -68,9 +69,9 @@ class MessageStatusService {
       }
 
       // Message sent successfully - update local status
-      this.notifyStatusChange(tempId, MessageStatus.SENT, { 
+      this.notifyStatusChange(messageId, MessageStatus.SENT, { 
         ...newMessage, 
-        temp_id: tempId 
+        temp_id: messageId 
       });
 
       // Set up delivery confirmation timeout
@@ -85,7 +86,7 @@ class MessageStatusService {
 
     } catch (error) {
       console.error('Error sending message:', error);
-      this.notifyStatusChange(tempId, MessageStatus.FAILED, { 
+      this.notifyStatusChange(messageId, MessageStatus.FAILED, { 
         error: error.message 
       });
       throw error;

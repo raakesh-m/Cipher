@@ -49,12 +49,33 @@ export default function ChatScreen({ route, navigation }) {
       title: otherUser?.display_name || otherUser?.username || "Chat",
     });
 
+    // Start auth auto-refresh for React Native realtime reliability
+    supabase.auth.startAutoRefresh();
+
     initializeChat();
+
+    // Handle app state changes for React Native
+    const handleAppStateChange = (nextAppState) => {
+      if (nextAppState === 'active') {
+        console.log('📱 App became active - refreshing connection');
+        supabase.auth.startAutoRefresh();
+        // Reconnect channel if needed
+        if (window.chatChannel) {
+          window.chatChannel.subscribe();
+        }
+      } else if (nextAppState === 'background') {
+        console.log('📱 App went to background');
+        supabase.auth.stopAutoRefresh();
+      }
+    };
 
     return () => {
       // Cleanup all services
-      realtimeService.unsubscribe(`messages_${chatId}`);
-      realtimeService.unsubscribe(`instant_messages_${chatId}`);
+      if (window.chatChannel) {
+        window.chatChannel.unsubscribe();
+        window.chatChannel = null;
+      }
+      supabase.auth.stopAutoRefresh();
       typingService.unsubscribeFromTyping(chatId, handleTypingUsersChange);
       messageStatusService.cleanup();
     };
@@ -64,26 +85,65 @@ export default function ChatScreen({ route, navigation }) {
     await loadCurrentUser();
     await loadMessages();
     
-    // Subscribe to enhanced realtime messages (database updates)
-    realtimeService.subscribe(`messages_${chatId}`, {
-      channelName: `messages:${chatId}`,
-      table: 'messages',
-      event: 'INSERT',
-      filter: `chat_id=eq.${chatId}`,
-      callback: handleNewMessage,
-    });
+    // Wait a moment for currentUser to be set
+    const user = currentUser || await getCurrentUserSync();
+    
+    // Create a single channel for both database changes and broadcasts
+    const channel = supabase
+      .channel(`chat_${chatId}`, {
+        config: {
+          broadcast: { self: false, ack: false },
+          presence: { key: user?.id || 'default' },
+        },
+      })
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${chatId}`,
+        },
+        handleNewMessage
+      )
+      .on(
+        'broadcast',
+        { event: 'instant_message' },
+        handleInstantMessage
+      )
+      .subscribe((status) => {
+        console.log('📡 Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          setConnectionStatus('connected');
+          console.log('✅ Successfully connected to realtime');
+        } else if (status === 'CHANNEL_ERROR') {
+          setConnectionStatus('error');
+          console.error('❌ Channel subscription failed');
+        }
+      });
 
-    // Subscribe to instant messages (broadcasts for immediate delivery)
-    realtimeService.subscribe(`instant_messages_${chatId}`, {
-      channelName: `messages:${chatId}`,  // Use same channel as database messages
-      broadcastCallback: handleInstantMessage,
-    });
+    // Store channel reference for cleanup
+    window.chatChannel = channel;
 
     setConnectionStatus('connected');
   };
 
   const handleTypingUsersChange = (typingUserIds) => {
     setTypingUsers(typingUserIds);
+  };
+
+  // Helper to get current user synchronously
+  const getCurrentUserSync = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+      return { ...user, ...profile };
+    }
+    return null;
   };
 
   const loadCurrentUser = async () => {
@@ -216,8 +276,13 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   // Handle database messages (slower backup for reliability)
-  const handleNewMessage = async (newMessage) => {
-    console.log('🆕 Processing database message:', newMessage);
+  const handleNewMessage = async (payload) => {
+    const newMessage = payload.new || payload;
+    console.log('🆕 Processing database message:', {
+      id: newMessage.id,
+      sender_id: newMessage.sender_id,
+      content: newMessage.content_original?.substring(0, 50) + '...'
+    });
     
     // Skip own messages - they're already handled optimistically
     if (newMessage.sender_id === currentUser?.id) {
@@ -290,9 +355,9 @@ export default function ChatScreen({ route, navigation }) {
         currentUser.gemini_api_key_encrypted
       );
 
-      // If no translation needed, just add the message
+      // If no translation needed, return early (message already added by caller)
       if (!targetLanguage) {
-        setMessages((prev) => [...prev, message]);
+        console.log('ℹ️ No translation needed for message:', message.id);
         return;
       }
 
@@ -382,7 +447,7 @@ export default function ChatScreen({ route, navigation }) {
 
       setMessages(prev => [...prev, optimisticMessage]);
 
-      // 🚀 INSTANT DELIVERY: Broadcast message immediately (like typing)
+      // 🚀 INSTANT DELIVERY: Broadcast message immediately using direct channel
       console.log('🚀 Broadcasting instant message:', {
         tempId,
         senderId: currentUser.id,
@@ -390,10 +455,19 @@ export default function ChatScreen({ route, navigation }) {
         content: messageText
       });
       
-      await realtimeService.sendInstantMessage(`messages:${chatId}`, {
-        ...optimisticMessage,
-        sender_profile: currentUser
-      });
+      if (window.chatChannel) {
+        await window.chatChannel.send({
+          type: 'broadcast',
+          event: 'instant_message',
+          payload: {
+            ...optimisticMessage,
+            sender_profile: currentUser
+          }
+        });
+        console.log('✅ Broadcast sent successfully');
+      } else {
+        console.error('❌ Chat channel not available');
+      }
 
       // Update local status to sent immediately after broadcast
       setMessages(prev => prev.map(msg => 
@@ -408,7 +482,8 @@ export default function ChatScreen({ route, navigation }) {
         messageText,
         currentUser.id,
         recipientId,
-        'text'
+        'text',
+        tempId
       ).then(newMessage => {
         // Update with database ID when ready
         setMessages(prev => prev.map(msg => 
@@ -556,7 +631,8 @@ export default function ChatScreen({ route, navigation }) {
           message.content,
           currentUser.id,
           otherUser.id || otherUser.user_id,
-          message.message_type || 'text'
+          message.message_type || 'text',
+          message.temp_id
         );
 
         // Remove failed message from list
