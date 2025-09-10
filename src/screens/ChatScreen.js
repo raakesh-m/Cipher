@@ -43,6 +43,7 @@ export default function ChatScreen({ route, navigation }) {
   const flatListRef = useRef(null);
   const previousInputText = useRef("");
   const typingTimeout = useRef(null);
+  const previousTypingUsersLength = useRef(0);
 
   useEffect(() => {
     navigation.setOptions({
@@ -80,6 +81,16 @@ export default function ChatScreen({ route, navigation }) {
       messageStatusService.cleanup();
     };
   }, [chatId]);
+
+  // Auto-scroll when typing users change
+  useEffect(() => {
+    if (typingUsers.length > 0) {
+      // Small delay to ensure typing indicator is rendered before scrolling
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 150);
+    }
+  }, [typingUsers]);
 
   const initializeChat = async () => {
     await loadCurrentUser();
@@ -130,6 +141,15 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleTypingUsersChange = (typingUserIds) => {
     setTypingUsers(typingUserIds);
+    
+    // Auto-scroll to show typing indicator when someone starts typing
+    if (typingUserIds.length > previousTypingUsersLength.current) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+    
+    previousTypingUsersLength.current = typingUserIds.length;
   };
 
   // Helper to get current user synchronously
@@ -761,52 +781,65 @@ export default function ChatScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={[
+      <View style={[
         styles.container,
         { backgroundColor: theme.colors.background }
       ]}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={[
-            styles.loadingText,
-            { color: theme.colors.textSecondary }
-          ]}>Loading messages...</Text>
-        </View>
-      </SafeAreaView>
+        <SafeAreaView style={styles.safeArea}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[
+              styles.loadingText,
+              { color: theme.colors.textSecondary }
+            ]}>Loading messages...</Text>
+          </View>
+        </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[
+    <View style={[
       styles.container,
       { backgroundColor: theme.colors.background }
     ]}>
-      <ConnectionStatus />
+      <SafeAreaView style={styles.safeArea}>
+        <ConnectionStatus />
+        <View style={styles.chatContainer}>
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id || item.temp_id || `msg_${Date.now()}`}
+            contentContainerStyle={[
+              styles.messagesList,
+              { backgroundColor: theme.colors.background }
+            ]}
+            onContentSizeChange={() =>
+              flatListRef.current?.scrollToEnd({ animated: true })
+            }
+            onLayout={() =>
+              flatListRef.current?.scrollToEnd({ animated: false })
+            }
+            showsVerticalScrollIndicator={false}
+            maintainVisibleContentPosition={{
+              minIndexForVisible: 0,
+            }}
+            ListFooterComponent={() => (
+              <TypingIndicator 
+                key="typing-indicator"
+                typingUsers={typingUsers} 
+                profilesMap={profilesMap} 
+              />
+            )}
+          />
+        </View>
+      </SafeAreaView>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={styles.keyboardView}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
       >
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          renderItem={renderMessage}
-          keyExtractor={(item) => item.id || item.temp_id || `msg_${Date.now()}`}
-          contentContainerStyle={[
-            styles.messagesList,
-            { backgroundColor: theme.colors.background }
-          ]}
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: true })
-          }
-          showsVerticalScrollIndicator={false}
-          ListFooterComponent={() => (
-            <TypingIndicator 
-              typingUsers={typingUsers} 
-              profilesMap={profilesMap} 
-            />
-          )}
-        />
-
         <View style={[
           styles.inputContainer,
           {
@@ -847,6 +880,10 @@ export default function ChatScreen({ route, navigation }) {
               if (currentUser?.id) {
                 messageStatusService.markChatAsRead(chatId, currentUser.id);
               }
+              // Scroll to bottom when keyboard opens
+              setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }, 300);
             }}
           />
 
@@ -870,12 +907,18 @@ export default function ChatScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  chatContainer: {
     flex: 1,
   },
   loadingContainer: {

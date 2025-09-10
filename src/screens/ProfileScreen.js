@@ -15,6 +15,8 @@ import {
   ActivityIndicator,
   Modal,
   FlatList,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -367,17 +369,24 @@ const ProfileScreen = ({ navigation }) => {
 
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
-        <Ionicons name="person" size={60} color={theme.colors.primary} />
-        <Text style={[styles.loadingText, { color: theme.colors.text }]}>
-          Loading your profile...
-        </Text>
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.keyboardView}
+        >
+          <View style={[styles.loadingContainer, { backgroundColor: theme.colors.background }]}>
+            <Ionicons name="person" size={60} color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.text }]}>
+              Loading your profile...
+            </Text>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar 
         barStyle={isDark ? "light-content" : "dark-content"} 
         backgroundColor={theme.colors.background}
@@ -407,7 +416,10 @@ const ProfileScreen = ({ navigation }) => {
         <Text style={styles.successToastText}>Profile saved successfully!</Text>
       </Animated.View>
 
-      <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.keyboardView}
+      >
         <Animated.View
           style={[
             styles.header,
@@ -712,85 +724,85 @@ const ProfileScreen = ({ navigation }) => {
               </Text>
             </View>
           </TouchableOpacity>
-        </Animated.ScrollView>
+          </Animated.ScrollView>
 
-        {/* Language Picker Modal */}
-        <Modal
-          visible={showLanguagePicker}
-          animationType="slide"
-          presentationStyle="pageSheet"
-        >
-          <View style={[styles.modalContainer, { backgroundColor: theme.colors.surface }]}>
-            <View style={[styles.modalHeader, { 
-              backgroundColor: theme.colors.card,
-              borderBottomColor: theme.colors.border,
-            }]}>
-              <TouchableOpacity onPress={() => {
-                setShowLanguagePicker(false);
-                setLanguageSearch("");
-              }}>
-                <Text style={[styles.modalCancel, { color: theme.colors.primary }]}>Cancel</Text>
-              </TouchableOpacity>
-              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Add Language</Text>
-              <View style={styles.modalSpacer} />
-            </View>
+          {/* Language Picker Modal */}
+          <Modal
+            visible={showLanguagePicker}
+            animationType="slide"
+            presentationStyle="pageSheet"
+          >
+            <View style={[styles.modalContainer, { backgroundColor: theme.colors.surface }]}>
+              <View style={[styles.modalHeader, { 
+                backgroundColor: theme.colors.card,
+                borderBottomColor: theme.colors.border,
+              }]}>
+                <TouchableOpacity onPress={() => {
+                  setShowLanguagePicker(false);
+                  setLanguageSearch("");
+                }}>
+                  <Text style={[styles.modalCancel, { color: theme.colors.primary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Add Language</Text>
+                <View style={styles.modalSpacer} />
+              </View>
 
-            <View style={[styles.searchContainer, { 
-              backgroundColor: theme.colors.inputBackground,
-              borderColor: theme.colors.inputBorder,
-            }]}>
-              <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
-              <TextInput
-                style={[styles.searchInput, { color: theme.colors.text }]}
-                placeholder="Search languages..."
-                placeholderTextColor={theme.colors.inputPlaceholder}
-                value={languageSearch}
-                onChangeText={setLanguageSearch}
+              <View style={[styles.searchContainer, { 
+                backgroundColor: theme.colors.inputBackground,
+                borderColor: theme.colors.inputBorder,
+              }]}>
+                <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
+                <TextInput
+                  style={[styles.searchInput, { color: theme.colors.text }]}
+                  placeholder="Search languages..."
+                  placeholderTextColor={theme.colors.inputPlaceholder}
+                  value={languageSearch}
+                  onChangeText={setLanguageSearch}
+                />
+              </View>
+
+              <FlatList
+                data={availableLanguages.filter(
+                  (lang) =>
+                    !knownLanguages.includes(lang.name) &&
+                    (lang.name?.toLowerCase().includes(languageSearch.toLowerCase()) ||
+                     lang.native_name?.toLowerCase().includes(languageSearch.toLowerCase()) ||
+                     lang.code?.toLowerCase().includes(languageSearch.toLowerCase()))
+                )}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.languagePickerItem, {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    }]}
+                    onPress={() => addLanguage(item.name)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.languagePickerInfo}>
+                      <Text style={[styles.languagePickerName, { color: theme.colors.text }]}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.languagePickerNative, { color: theme.colors.textSecondary }]}>
+                        {item.native_name}
+                      </Text>
+                    </View>
+                    <Ionicons name="add" size={24} color={theme.colors.primary} />
+                  </TouchableOpacity>
+                )}
+                keyExtractor={(item) => item.code}
+                style={styles.languagePickerList}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ padding: 20 }}
+                ListEmptyComponent={
+                  <Text style={[styles.emptyLanguagesText, { color: theme.colors.textTertiary }]}>
+                    {languageSearch ? 'No matching languages found' : 'All available languages are already added'}
+                  </Text>
+                }
               />
             </View>
-
-            <FlatList
-              data={availableLanguages.filter(
-                (lang) =>
-                  !knownLanguages.includes(lang.name) &&
-                  (lang.name?.toLowerCase().includes(languageSearch.toLowerCase()) ||
-                   lang.native_name?.toLowerCase().includes(languageSearch.toLowerCase()) ||
-                   lang.code?.toLowerCase().includes(languageSearch.toLowerCase()))
-              )}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.languagePickerItem, {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  }]}
-                  onPress={() => addLanguage(item.name)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.languagePickerInfo}>
-                    <Text style={[styles.languagePickerName, { color: theme.colors.text }]}>
-                      {item.name}
-                    </Text>
-                    <Text style={[styles.languagePickerNative, { color: theme.colors.textSecondary }]}>
-                      {item.native_name}
-                    </Text>
-                  </View>
-                  <Ionicons name="add" size={24} color={theme.colors.primary} />
-                </TouchableOpacity>
-              )}
-              keyExtractor={(item) => item.code}
-              style={styles.languagePickerList}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ padding: 20 }}
-              ListEmptyComponent={
-                <Text style={[styles.emptyLanguagesText, { color: theme.colors.textTertiary }]}>
-                  {languageSearch ? 'No matching languages found' : 'All available languages are already added'}
-                </Text>
-              }
-            />
-          </View>
-        </Modal>
-      </SafeAreaView>
-    </View>
+          </Modal>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 };
 
@@ -798,7 +810,7 @@ const createStyles = (theme) => StyleSheet.create({
   container: {
     flex: 1,
   },
-  safeArea: {
+  keyboardView: {
     flex: 1,
   },
   loadingContainer: {

@@ -8,6 +8,8 @@ import {
   SafeAreaView,
   RefreshControl,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -207,25 +209,30 @@ export default function ChatListScreen({ navigation }) {
         styles.container,
         { backgroundColor: theme.colors.background }
       ]}>
-        <View style={[
-          styles.header,
-          {
-            backgroundColor: theme.colors.surface,
-            borderBottomColor: theme.colors.border,
-          },
-        ]}>
-          <Text style={[
-            styles.title,
-            { color: theme.colors.text }
-          ]}>Chats</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-          <Text style={[
-            styles.loadingText,
-            { color: theme.colors.textSecondary }
-          ]}>Loading chats...</Text>
-        </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.keyboardView}
+        >
+          <View style={[
+            styles.header,
+            {
+              backgroundColor: theme.colors.surface,
+              borderBottomColor: theme.colors.border,
+            },
+          ]}>
+            <Text style={[
+              styles.title,
+              { color: theme.colors.text }
+            ]}>Chats</Text>
+          </View>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <Text style={[
+              styles.loadingText,
+              { color: theme.colors.textSecondary }
+            ]}>Loading chats...</Text>
+          </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -235,129 +242,137 @@ export default function ChatListScreen({ navigation }) {
       styles.container,
       { backgroundColor: theme.colors.background }
     ]}>
-      <View style={[
-        styles.header,
-        {
-          backgroundColor: theme.colors.surface,
-          borderBottomColor: theme.colors.border,
-          ...theme.shadows.sm,
-        },
-      ]}>
-        <Text style={[
-          styles.title,
-          { color: theme.colors.text }
-        ]}>Chats</Text>
-        <View style={styles.headerButtons}>
-          <TouchableOpacity
-            style={[
-              styles.headerButton,
-              {
-                backgroundColor: theme.colors.background,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            onPress={() => navigation.navigate("UserSearch")}
-          >
-            <Ionicons name="add" size={20} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.headerButton,
-              {
-                backgroundColor: theme.colors.background,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            onPress={() => navigation.navigate("Profile")}
-          >
-            <Ionicons name="person-outline" size={20} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.headerButton,
-              {
-                backgroundColor: theme.colors.background,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            onPress={() => navigation.navigate("Settings")}
-          >
-            <Ionicons name="settings-outline" size={20} color={theme.colors.primary} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[
-              styles.headerButton,
-              {
-                backgroundColor: theme.colors.background,
-                borderColor: theme.colors.border,
-              },
-            ]} 
-            onPress={handleSignOut}
-          >
-            <Ionicons name="log-out-outline" size={20} color={theme.colors.error} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {chats.length === 0 ? (
-        <View style={styles.emptyState}>
-          <View style={[
-            styles.emptyIcon,
-            { backgroundColor: theme.colors.surface }
-          ]}>
-            <Ionicons 
-              name="chatbubbles-outline" 
-              size={48} 
-              color={theme.colors.textTertiary} 
-            />
-          </View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.keyboardView}
+      >
+        <View style={[
+          styles.header,
+          {
+            backgroundColor: theme.colors.surface,
+            borderBottomColor: theme.colors.border,
+            ...theme.shadows.sm,
+          },
+        ]}>
           <Text style={[
-            styles.emptyText,
+            styles.title,
             { color: theme.colors.text }
-          ]}>No conversations yet</Text>
-          <Text style={[
-            styles.emptySubtext,
-            { color: theme.colors.textSecondary }
-          ]}>
-            Start chatting with friends by tapping the + button above
-          </Text>
-          <TouchableOpacity
-            style={[
-              styles.startChatButton,
-              { backgroundColor: theme.colors.primary }
-            ]}
-            onPress={() => navigation.navigate("UserSearch")}
-          >
-            <Ionicons name="add" size={20} color="#fff" style={{ marginRight: theme.spacing.sm }} />
-            <Text style={styles.startChatText}>Start New Chat</Text>
-          </TouchableOpacity>
+          ]}>Chats</Text>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              style={[
+                styles.headerButton,
+                {
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => navigation.navigate("UserSearch")}
+            >
+              <Ionicons name="add" size={20} color={theme.colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.headerButton,
+                {
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => navigation.navigate("Profile")}
+            >
+              <Ionicons name="person-outline" size={20} color={theme.colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.headerButton,
+                {
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => navigation.navigate("Settings")}
+            >
+              <Ionicons name="settings-outline" size={20} color={theme.colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[
+                styles.headerButton,
+                {
+                  backgroundColor: theme.colors.background,
+                  borderColor: theme.colors.border,
+                },
+              ]} 
+              onPress={handleSignOut}
+            >
+              <Ionicons name="log-out-outline" size={20} color={theme.colors.error} />
+            </TouchableOpacity>
+          </View>
         </View>
-      ) : (
-        <FlatList
-          data={chats}
-          renderItem={renderChatItem}
-          keyExtractor={(item) => item.id}
-          refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
-              onRefresh={onRefresh}
-              tintColor={theme.colors.primary}
-              colors={[theme.colors.primary]}
-            />
-          }
-          contentContainerStyle={[
-            styles.chatList,
-            { backgroundColor: theme.colors.background }
-          ]}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
+
+        {chats.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={[
+              styles.emptyIcon,
+              { backgroundColor: theme.colors.surface }
+            ]}>
+              <Ionicons 
+                name="chatbubbles-outline" 
+                size={48} 
+                color={theme.colors.textTertiary} 
+              />
+            </View>
+            <Text style={[
+              styles.emptyText,
+              { color: theme.colors.text }
+            ]}>No conversations yet</Text>
+            <Text style={[
+              styles.emptySubtext,
+              { color: theme.colors.textSecondary }
+            ]}>
+              Start chatting with friends by tapping the + button above
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.startChatButton,
+                { backgroundColor: theme.colors.primary }
+              ]}
+              onPress={() => navigation.navigate("UserSearch")}
+            >
+              <Ionicons name="add" size={20} color="#fff" style={{ marginRight: theme.spacing.sm }} />
+              <Text style={styles.startChatText}>Start New Chat</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={chats}
+            renderItem={renderChatItem}
+            keyExtractor={(item) => item.id}
+            refreshControl={
+              <RefreshControl 
+                refreshing={refreshing} 
+                onRefresh={onRefresh}
+                tintColor={theme.colors.primary}
+                colors={[theme.colors.primary]}
+              />
+            }
+            contentContainerStyle={[
+              styles.chatList,
+              { backgroundColor: theme.colors.background }
+            ]}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  keyboardView: {
     flex: 1,
   },
   loadingContainer: {
