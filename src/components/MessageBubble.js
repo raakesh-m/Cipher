@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import messageStatusService, { MessageStatus } from '../services/messageStatusService';
@@ -12,6 +12,7 @@ const MessageBubble = ({
   showTimestamp = false 
 }) => {
   const { theme } = useTheme();
+  const [showingOriginal, setShowingOriginal] = useState(false);
 
   const getStatusIcon = () => {
     if (!isOwnMessage) return null;
@@ -57,6 +58,54 @@ const MessageBubble = ({
     });
   };
 
+  // Determine what content to show based on context
+  const getDisplayContent = () => {
+    // For own messages (sent): always show original
+    if (isOwnMessage) {
+      return message.content_original || message.content || '';
+    }
+
+    // For received messages: show translated if available, original if requested
+    if (showingOriginal) {
+      return message.content_original || message.content || '';
+    }
+
+    // Show translated version for recipient if available, otherwise original
+    return message.content_translated || message.content_original || message.content || '';
+  };
+
+  // Check if message was translated (only relevant for received messages)
+  const isTranslatedMessage = () => {
+    return !isOwnMessage && message.was_translated && message.content_translated;
+  };
+
+  // Handle long press for received messages to toggle original/translated
+  const handleLongPress = () => {
+    if (!isOwnMessage && message.content_original && message.content_translated) {
+      // Show options to view original or call custom long press handler
+      Alert.alert(
+        'Message Options',
+        isTranslatedMessage() ? 'This message was translated' : 'Message actions',
+        [
+          ...(isTranslatedMessage() ? [{
+            text: showingOriginal ? 'Show Translation' : 'Show Original',
+            onPress: () => setShowingOriginal(!showingOriginal)
+          }] : []),
+          {
+            text: 'Copy Text',
+            onPress: () => {
+              // Could implement clipboard copy here
+              if (onLongPress) onLongPress();
+            }
+          },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    } else if (onLongPress) {
+      onLongPress();
+    }
+  };
+
   const bubbleStyle = [
     styles.bubble,
     isOwnMessage ? [
@@ -65,8 +114,13 @@ const MessageBubble = ({
     ] : [
       styles.otherBubble,
       { 
-        backgroundColor: theme.colors.surface,
-        borderColor: theme.colors.border
+        backgroundColor: isTranslatedMessage() 
+          ? theme.colors.translatedBackground || theme.colors.surface
+          : theme.colors.surface,
+        borderColor: isTranslatedMessage() 
+          ? theme.colors.translatedBorder || theme.colors.primary
+          : theme.colors.border,
+        borderWidth: isTranslatedMessage() ? 2 : 1
       }
     ],
     message.status === MessageStatus.FAILED && styles.failedBubble
@@ -85,12 +139,30 @@ const MessageBubble = ({
       isOwnMessage ? styles.ownMessageContainer : styles.otherMessageContainer
     ]}>
       <TouchableOpacity
-        onLongPress={onLongPress}
+        onLongPress={handleLongPress}
         style={bubbleStyle}
         activeOpacity={0.8}
       >
+        {/* Translation indicator for received messages */}
+        {isTranslatedMessage() && (
+          <View style={styles.translationIndicator}>
+            <Ionicons 
+              name="language" 
+              size={12} 
+              color={theme.colors.primary} 
+              style={{ marginRight: 4 }}
+            />
+            <Text style={[
+              styles.translationText,
+              { color: theme.colors.primary }
+            ]}>
+              {showingOriginal ? 'Original' : 'Translated'}
+            </Text>
+          </View>
+        )}
+
         <Text style={textStyle}>
-          {message.content_translated || message.content_original || message.content || ''}
+          {getDisplayContent()}
         </Text>
         
         <View style={styles.messageFooter}>
@@ -176,6 +248,20 @@ const styles = StyleSheet.create({
   timestamp: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  translationIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  translationText: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
 });
 

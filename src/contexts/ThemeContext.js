@@ -51,6 +51,10 @@ const lightTheme = {
     inputBorder: '#d1d5db',
     inputPlaceholder: '#9ca3af',
     
+    // Translation colors
+    translatedBackground: '#f0f9ff',
+    translatedBorder: '#0ea5e9',
+    
     // Shadow
     shadow: '#000000',
     
@@ -132,6 +136,10 @@ const darkTheme = {
     inputBackground: '#475569',
     inputBorder: '#64748b',
     inputPlaceholder: '#94a3b8',
+    
+    // Translation colors
+    translatedBackground: '#1e293b',
+    translatedBorder: '#0ea5e9',
     
     // Shadow
     shadow: '#000000',

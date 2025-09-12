@@ -161,6 +161,143 @@ export const translateMessage = async (
   }
 };
 
+// New function for sender-side translation (pre-send)
+export const translateMessageForRecipient = async (
+  messageText,
+  senderKnownLanguages,
+  recipientKnownLanguages,
+  recipientPreferredLanguage,
+  senderApiKey
+) => {
+  if (!senderApiKey || !recipientKnownLanguages || !recipientPreferredLanguage) {
+    return {
+      needsTranslation: false,
+      originalText: messageText,
+      translatedText: null,
+      detectedLanguage: null,
+      error: null
+    };
+  }
+
+  try {
+    // Step 1: Detect what language the sender is typing in
+    const detectedLanguage = await detectMessageLanguage(
+      messageText,
+      senderKnownLanguages,
+      senderApiKey
+    );
+
+    console.log(`🔍 Detected language: ${detectedLanguage} for message: "${messageText.substring(0, 50)}..."`);
+
+    // Step 2: Check if recipient knows this language
+    const recipientKnowsLanguage = recipientKnownLanguages.some(lang => 
+      lang.toLowerCase() === detectedLanguage.toLowerCase()
+    );
+
+    if (recipientKnowsLanguage) {
+      console.log(`✅ Recipient knows ${detectedLanguage} - no translation needed`);
+      return {
+        needsTranslation: false,
+        originalText: messageText,
+        translatedText: null,
+        detectedLanguage,
+        error: null
+      };
+    }
+
+    // Step 3: Translate to recipient's preferred language
+    console.log(`🔄 Translating from ${detectedLanguage} to ${recipientPreferredLanguage}`);
+    const translatedText = await translateMessage(
+      messageText,
+      recipientPreferredLanguage,
+      senderApiKey
+    );
+
+    return {
+      needsTranslation: true,
+      originalText: messageText,
+      translatedText,
+      detectedLanguage,
+      error: null
+    };
+
+  } catch (error) {
+    console.error('❌ Translation failed:', error);
+    return {
+      needsTranslation: false,
+      originalText: messageText,
+      translatedText: null,
+      detectedLanguage: null,
+      error: error.message
+    };
+  }
+};
+
+// Detect what language a message is written in
+export const detectMessageLanguage = async (
+  text,
+  senderKnownLanguages,
+  encryptedApiKey
+) => {
+  try {
+    const apiKey = await decryptApiKey(encryptedApiKey);
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Analyze this text and identify its language: "${text}"
+
+Sender's known languages: ${senderKnownLanguages?.join(", ") || "Unknown"}
+
+Rules:
+1. Return ONLY the language name (e.g., "English", "Tamil", "Spanish")
+2. If the text mixes languages, return the dominant language
+3. If uncertain, pick the most likely language from sender's known languages
+
+Examples:
+- "Hello how are you?" → "English"
+- "¿Cómo estás?" → "Spanish"  
+- "வணக்கம்" → "Tamil"
+- "Bonjour mon ami" → "French"
+
+Only return the language name, nothing else.`,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 20,
+          },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Language detection API failed');
+    }
+
+    const data = await response.json();
+    const detectedLanguage = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    
+    return detectedLanguage || "English"; // Fallback to English
+
+  } catch (error) {
+    console.error("Language detection error:", error);
+    // Fallback: assume first known language or English
+    return senderKnownLanguages?.[0] || "English";
+  }
+};
+
 const getLanguageName = (code) => {
   // Common language codes for quick lookup
   const languageMap = {

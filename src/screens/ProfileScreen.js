@@ -40,6 +40,7 @@ const ProfileScreen = ({ navigation }) => {
   const [preferredLanguage, setPreferredLanguage] = useState("");
   const [availableLanguages, setAvailableLanguages] = useState([]);
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
+  const [showPreferredLanguagePicker, setShowPreferredLanguagePicker] = useState(false);
   const [languageSearch, setLanguageSearch] = useState("");
   
   // Animation references
@@ -285,6 +286,12 @@ const ProfileScreen = ({ navigation }) => {
       setShowLanguagePicker(false);
       setLanguageSearch("");
     }
+  };
+
+  const selectPreferredLanguage = (languageName) => {
+    setPreferredLanguage(languageName);
+    setShowPreferredLanguagePicker(false);
+    setLanguageSearch("");
   };
 
   const removeLanguage = (languageToRemove) => {
@@ -566,7 +573,7 @@ const ProfileScreen = ({ navigation }) => {
                   alignItems: 'center',
                   justifyContent: 'space-between',
                 }]}
-                onPress={() => setShowLanguagePicker(true)}
+                onPress={() => setShowPreferredLanguagePicker(true)}
                 activeOpacity={0.7}
               >
                 <Text style={[{
@@ -796,6 +803,83 @@ const ProfileScreen = ({ navigation }) => {
                 ListEmptyComponent={
                   <Text style={[styles.emptyLanguagesText, { color: theme.colors.textTertiary }]}>
                     {languageSearch ? 'No matching languages found' : 'All available languages are already added'}
+                  </Text>
+                }
+              />
+            </View>
+          </Modal>
+
+          {/* Preferred Language Picker Modal */}
+          <Modal
+            visible={showPreferredLanguagePicker}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={() => setShowPreferredLanguagePicker(false)}
+          >
+            <View style={[styles.modalContainer, { backgroundColor: theme.colors.background }]}>
+              <View style={[styles.modalHeader, { borderBottomColor: theme.colors.border }]}>
+                <TouchableOpacity 
+                  onPress={() => setShowPreferredLanguagePicker(false)}
+                  style={styles.modalCloseButton}
+                >
+                  <Ionicons name="close" size={24} color={theme.colors.text} />
+                </TouchableOpacity>
+                <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+                  Select Preferred Language
+                </Text>
+                <View style={{ width: 24 }} />
+              </View>
+
+              <View style={[styles.searchContainer, { 
+                backgroundColor: theme.colors.inputBackground,
+                borderColor: theme.colors.inputBorder,
+              }]}>
+                <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
+                <TextInput
+                  style={[styles.searchInput, { color: theme.colors.text }]}
+                  placeholder="Search languages..."
+                  placeholderTextColor={theme.colors.inputPlaceholder}
+                  value={languageSearch}
+                  onChangeText={setLanguageSearch}
+                />
+              </View>
+
+              <FlatList
+                data={availableLanguages.filter(
+                  (lang) =>
+                    (lang.name?.toLowerCase().includes(languageSearch.toLowerCase()) ||
+                     lang.native_name?.toLowerCase().includes(languageSearch.toLowerCase()) ||
+                     lang.code?.toLowerCase().includes(languageSearch.toLowerCase()))
+                )}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[styles.languagePickerItem, {
+                      backgroundColor: theme.colors.card,
+                      borderColor: theme.colors.border,
+                    }]}
+                    onPress={() => selectPreferredLanguage(item.name)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.languagePickerInfo}>
+                      <Text style={[styles.languagePickerName, { color: theme.colors.text }]}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.languagePickerNative, { color: theme.colors.textSecondary }]}>
+                        {item.native_name}
+                      </Text>
+                    </View>
+                    {preferredLanguage === item.name && (
+                      <Ionicons name="checkmark" size={24} color={theme.colors.primary} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                keyExtractor={(item) => item.code}
+                style={styles.languagePickerList}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ padding: 20 }}
+                ListEmptyComponent={
+                  <Text style={[styles.emptyLanguagesText, { color: theme.colors.textTertiary }]}>
+                    {languageSearch ? 'No matching languages found' : 'Loading languages...'}
                   </Text>
                 }
               />
