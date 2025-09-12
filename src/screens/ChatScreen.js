@@ -102,6 +102,7 @@ export default function ChatScreen({ route, navigation }) {
         handleNewMessage
       )
       .on("broadcast", { event: "instant_message" }, handleInstantMessage)
+      .on("broadcast", { event: "instant_message_update" }, handleInstantMessageUpdate)
       .subscribe((status) => {
         console.log("📡 Subscription status:", status);
         if (status === "SUBSCRIBED") {
@@ -212,6 +213,48 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
+  // Handle translation updates for instant messages
+  const handleInstantMessageUpdate = (payload) => {
+    console.log("🔄 handleInstantMessageUpdate called with payload:", {
+      event: payload.event,
+      hasPayload: !!payload.payload,
+      temp_id: payload.payload?.temp_id,
+      was_translated: payload.payload?.was_translated,
+    });
+
+    const messageData = payload.payload;
+    
+    // Skip own messages - translation updates are handled locally
+    if (messageData?.sender_id === currentUser?.id) {
+      console.log("⚠️ Skipping own translation update (handled locally)");
+      return;
+    }
+
+    console.log("🔄 Processing translation update from other user");
+
+    // Update existing message with translation data
+    setMessages((prev) => {
+      const messageIndex = prev.findIndex(
+        (msg) => msg.temp_id === messageData.temp_id
+      );
+      
+      if (messageIndex === -1) {
+        console.log("⚠️ No matching message found for translation update:", messageData.temp_id);
+        return prev;
+      }
+
+      console.log("✅ Updating message with translation:", messageData.temp_id);
+      const updated = [...prev];
+      updated[messageIndex] = {
+        ...updated[messageIndex],
+        content_translated: messageData.content_translated,
+        was_translated: messageData.was_translated,
+        detected_language: messageData.detected_language,
+      };
+      return updated;
+    });
+  };
+
   // Handle instant messages (broadcast - immediate delivery like typing)
   const handleInstantMessage = (payload) => {
     console.log("🎯 handleInstantMessage called with payload:", {
@@ -244,12 +287,13 @@ export default function ChatScreen({ route, navigation }) {
     setMessages((prev) => {
       const messageExists = prev.some(
         (msg) =>
-          msg.id === messageData.id || msg.temp_id === messageData.temp_id
+          (msg.id && msg.id === messageData.id) || 
+          (msg.temp_id && msg.temp_id === messageData.temp_id)
       );
       if (messageExists) {
         console.log(
           "⚠️ Duplicate instant message detected, skipping:",
-          messageData.temp_id
+          messageData.temp_id || messageData.id
         );
         return prev;
       }
@@ -283,9 +327,54 @@ export default function ChatScreen({ route, navigation }) {
       was_translated: newMessage.was_translated,
     });
 
-    // Skip own messages - they're already handled optimistically
+    // For sender: check if we already have this message (by temp_id or id)
     if (newMessage.sender_id === currentUser?.id) {
-      console.log("⚠️ Skipping own database message:", newMessage.id);
+      setMessages((prev) => {
+        console.log("🗄️ Processing database message for sender:", {
+          newMessageId: newMessage.id,
+          newMessageTempId: newMessage.temp_id,
+          totalExistingMessages: prev.length,
+          existingTempIds: prev.map(m => m.temp_id).filter(Boolean),
+          existingIds: prev.map(m => m.id).filter(Boolean),
+          messageContent: newMessage.content_original?.substring(0, 20) + "..."
+        });
+
+        // First check for duplicate by database ID
+        const duplicateByIdIndex = prev.findIndex((msg) => msg.id === newMessage.id);
+        if (duplicateByIdIndex !== -1) {
+          console.log("⚠️ Sender already has message with database ID:", newMessage.id, "- skipping");
+          return prev;
+        }
+
+        // Then check for optimistic message by temp_id to update
+        const existingMessageIndex = prev.findIndex(
+          (msg) => msg.temp_id === newMessage.temp_id
+        );
+        
+        if (existingMessageIndex !== -1) {
+          // Update existing optimistic message with database info
+          console.log("🔄 Updating sender's optimistic message with database info:", {
+            index: existingMessageIndex,
+            oldId: prev[existingMessageIndex].id,
+            newId: newMessage.id,
+            tempId: newMessage.temp_id
+          });
+          const updated = [...prev];
+          updated[existingMessageIndex] = {
+            ...updated[existingMessageIndex],
+            ...newMessage,
+            id: newMessage.id,
+            status: newMessage.status || "delivered",
+            // Remove temp_id once we have database ID to avoid key conflicts
+            temp_id: undefined
+          };
+          return updated;
+        }
+        
+        console.log("⚠️ No matching optimistic message found, ignoring database message for sender:", newMessage.id);
+        // Don't add new database messages for sender - they should only have optimistic -> updated flow
+        return prev;
+      });
       return;
     }
 
@@ -309,16 +398,21 @@ export default function ChatScreen({ route, navigation }) {
           id: newMessage.id,
           is_instant: false,
           status: newMessage.status || "delivered",
+          // Remove temp_id once we have database ID to avoid key conflicts
+          temp_id: undefined
         };
         return updated;
       }
 
       // Check if message already exists by ID
-      const messageExists = prev.some((msg) => msg.id === newMessage.id);
+      const messageExists = prev.some((msg) => 
+        (msg.id && msg.id === newMessage.id) ||
+        (msg.temp_id && msg.temp_id === newMessage.temp_id)
+      );
       if (messageExists) {
         console.log(
           "⚠️ Duplicate database message detected, skipping:",
-          newMessage.id
+          newMessage.id || newMessage.temp_id
         );
         return prev;
       }
@@ -340,18 +434,14 @@ export default function ChatScreen({ route, navigation }) {
     }, 100);
   };
 
-  // Note: Translation is now handled on the sender side before sending
-  // This function is no longer used but kept for backwards compatibility
-  const translateIncomingMessage = async (message) => {
-    console.log(
-      "ℹ️ translateIncomingMessage called but translation is now handled sender-side"
-    );
-    // Translation is now done by the sender before sending the message
-    // No need to translate incoming messages anymore
-    return;
-  };
 
   const sendMessage = async () => {
+    console.log("🚀 sendMessage called with:", {
+      inputText: inputText.trim(),
+      sending,
+      currentUser: currentUser?.id
+    });
+    
     if (!inputText.trim() || sending) return;
 
     setSending(true);
@@ -367,8 +457,71 @@ export default function ChatScreen({ route, navigation }) {
     setInputText("");
     previousInputText.current = "";
 
+    // 🚀 STEP 1: Add optimistic message immediately (sender sees original)
+    const tempId = `temp_${Date.now()}_${Math.random()}`;
+    const optimisticMessage = {
+      id: tempId,
+      temp_id: tempId,
+      chat_id: chatId,
+      content_original: messageText,
+      content_translated: null, // Will be updated if translation completes
+      sender_id: currentUser.id,
+      message_type: "text",
+      status: "sending",
+      created_at: new Date().toISOString(),
+      profiles: currentUser,
+      was_translated: false, // Will be updated if translation completes
+      detected_language: null,
+      translation_error: null,
+    };
+
+    setMessages((prev) => {
+      console.log("📱 Adding optimistic message:", {
+        tempId,
+        totalMessages: prev.length,
+        existingTempIds: prev.map(m => m.temp_id).filter(Boolean),
+        existingIds: prev.map(m => m.id).filter(Boolean)
+      });
+      
+      // Double-check for duplicates before adding
+      const duplicateIndex = prev.findIndex(m => 
+        (m.temp_id && m.temp_id === tempId) || 
+        (m.id && m.id === tempId)
+      );
+      if (duplicateIndex !== -1) {
+        console.error("🚨 DUPLICATE DETECTED in optimistic add:", tempId, "already exists at index", duplicateIndex);
+        return prev; // Don't add duplicate
+      }
+      
+      return [...prev, optimisticMessage];
+    });
+
+    // 🚀 STEP 2: INSTANT DELIVERY via broadcast (original message)
+    const initialBroadcastPayload = {
+      ...optimisticMessage,
+      content_original: messageText,
+      content_translated: null,
+      sender_profile: currentUser,
+    };
+
     try {
-      // 🔄 STEP 1: Handle pre-translation if sender has API key
+      if (window.chatChannel) {
+        await window.chatChannel.send({
+          type: "broadcast",
+          event: "instant_message",
+          payload: initialBroadcastPayload,
+        });
+        console.log("✅ Initial broadcast sent successfully");
+      }
+
+      // Update local status to sent immediately
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.temp_id === tempId ? { ...msg, status: "sent" } : msg
+        )
+      );
+
+      // 🔄 STEP 3: Handle translation in background (non-blocking)
       let translationResult = {
         needsTranslation: false,
         originalText: messageText,
@@ -377,7 +530,7 @@ export default function ChatScreen({ route, navigation }) {
         error: null,
       };
 
-      // Get recipient profile first for translation
+      // Get recipient profile for translation (in background)
       const { data: recipientProfile } = await supabase
         .from("profiles")
         .select("known_languages, preferred_language")
@@ -387,82 +540,75 @@ export default function ChatScreen({ route, navigation }) {
       // Check if current user can translate (has API key)
       if (currentUser?.gemini_api_key_encrypted && recipientProfile) {
         console.log("🎯 Sender has API key - checking if translation needed");
-        translationResult = await translateMessageForRecipient(
-          messageText,
-          currentUser.known_languages || ["English"],
-          recipientProfile.known_languages || ["English"],
-          recipientProfile.preferred_language || "English",
-          currentUser.gemini_api_key_encrypted
-        );
+        try {
+          translationResult = await translateMessageForRecipient(
+            messageText,
+            currentUser.known_languages || ["English"],
+            recipientProfile.known_languages || ["English"],
+            recipientProfile.preferred_language || "English",
+            currentUser.gemini_api_key_encrypted
+          );
+
+          // Update optimistic message with translation result
+          if (translationResult.needsTranslation) {
+            console.log("🔄 Translation completed - updating message");
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.temp_id === tempId ? { 
+                  ...msg, 
+                  content_translated: translationResult.translatedText,
+                  was_translated: true,
+                  detected_language: translationResult.detectedLanguage
+                } : msg
+              )
+            );
+
+            // Send updated broadcast with translation
+            const updatedBroadcastPayload = {
+              ...initialBroadcastPayload,
+              content_translated: translationResult.translatedText,
+              was_translated: true,
+              detected_language: translationResult.detectedLanguage,
+            };
+
+            if (window.chatChannel) {
+              await window.chatChannel.send({
+                type: "broadcast",
+                event: "instant_message_update",
+                payload: updatedBroadcastPayload,
+              });
+              console.log("✅ Translation broadcast sent successfully");
+            }
+          }
+        } catch (translationError) {
+          console.error("❌ Translation failed:", translationError);
+          // Update message with translation error
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.temp_id === tempId ? { 
+                ...msg, 
+                translation_error: translationError.message
+              } : msg
+            )
+          );
+        }
       }
 
-      // Determine what content to send to recipient
+      // Determine content for database and notifications
       const contentForRecipient = translationResult.needsTranslation
         ? translationResult.translatedText
         : messageText;
 
-      console.log("📤 Sending message:", {
+      console.log("📤 Final message result:", {
         original: messageText,
         forRecipient: contentForRecipient,
         translated: translationResult.needsTranslation,
       });
 
-      // 🚀 STEP 2: Add optimistic message (sender sees original)
-      const tempId = `temp_${Date.now()}_${Math.random()}`;
-      const optimisticMessage = {
-        id: tempId,
-        temp_id: tempId,
-        chat_id: chatId,
-        content_original: messageText, // Sender always sees original
-        content_translated: translationResult.needsTranslation
-          ? translationResult.translatedText
-          : null,
-        sender_id: currentUser.id,
-        message_type: "text",
-        status: "sending",
-        created_at: new Date().toISOString(),
-        profiles: currentUser,
-        // Translation metadata (client-side only for now)
-        was_translated: translationResult.needsTranslation,
-        detected_language: translationResult.detectedLanguage,
-        translation_error: translationResult.error,
-      };
-
-      setMessages((prev) => [...prev, optimisticMessage]);
-
-      // 🚀 STEP 3: INSTANT DELIVERY via broadcast
-      const broadcastPayload = {
-        ...optimisticMessage,
-        // For recipient display:
-        // If translated: original = sender's text, translated = translated text
-        // If not translated: original = sender's text, translated = null
-        content_original: messageText, // Always the sender's actual text
-        content_translated: translationResult.needsTranslation
-          ? translationResult.translatedText
-          : null,
-        sender_profile: currentUser,
-      };
-
-      if (window.chatChannel) {
-        await window.chatChannel.send({
-          type: "broadcast",
-          event: "instant_message",
-          payload: broadcastPayload,
-        });
-        console.log("✅ Broadcast sent successfully");
-      }
-
-      // Update local status to sent
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.temp_id === tempId ? { ...msg, status: "sent" } : msg
-        )
-      );
-
       // 💾 STEP 4: Save to database in background
       const databaseMessage = {
         chat_id: chatId,
-        content_original: messageText, // Always store sender's original
+        content_original: messageText,
         content_translated: translationResult.needsTranslation
           ? translationResult.translatedText
           : null,
@@ -495,20 +641,7 @@ export default function ChatScreen({ route, navigation }) {
 
       if (error) throw error;
 
-      // Update with database ID
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.temp_id === tempId
-            ? { 
-                ...newMessage, 
-                profiles: currentUser, 
-                status: "delivered",
-                // Keep the temp_id for React key consistency
-                temp_id: tempId
-              }
-            : msg
-        )
-      );
+      console.log("✅ Message saved to database:", newMessage.id, "- will update optimistic message via real-time");
 
       // 🔔 Send push notification (use translated content if available)
       const { data: recipientProfileForNotification } = await supabase
@@ -567,19 +700,6 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  // This function is no longer needed as translation and notifications
-  // are now handled directly in the sendMessage function
-  const handleMessageTranslationAndNotification = async (
-    messageData,
-    messageText,
-    recipientId
-  ) => {
-    console.log(
-      "ℹ️ handleMessageTranslationAndNotification called but functionality moved to sendMessage"
-    );
-    // Translation and notifications are now handled in sendMessage function
-    return;
-  };
 
   // Handle text input changes for typing indicators
   const handleTextChange = (text) => {
@@ -677,7 +797,7 @@ export default function ChatScreen({ route, navigation }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: "all",
       allowsEditing: true,
       aspect: [4, 3],
       quality: 0.8,
@@ -714,43 +834,6 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  const retryTranslation = async (messageId, originalContent) => {
-    if (!currentUser?.gemini_api_key_encrypted) {
-      Alert.alert("Error", "No translation API key configured");
-      return;
-    }
-
-    try {
-      const translatedContent = await translateMessage(
-        originalContent,
-        currentUser.preferred_language,
-        currentUser.gemini_api_key_encrypted
-      );
-
-      await supabase
-        .from("messages")
-        .update({
-          content_translated: translatedContent,
-          translation_failed: false,
-          translation_error: null,
-        })
-        .eq("id", messageId);
-
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === messageId
-            ? {
-                ...msg,
-                content_translated: translatedContent,
-                translation_failed: false,
-              }
-            : msg
-        )
-      );
-    } catch (error) {
-      Alert.alert("Translation Failed", error.message);
-    }
-  };
 
   if (loading) {
     return (
@@ -785,9 +868,12 @@ export default function ChatScreen({ route, navigation }) {
             ref={flatListRef}
             data={messages}
             renderItem={renderMessage}
-            keyExtractor={(item) =>
-              item.id || item.temp_id || `msg_${Date.now()}`
-            }
+            keyExtractor={(item, index) => {
+              // Prioritize database ID over temp_id to avoid duplicates
+              // If we have both temp_id and id, use id for uniqueness
+              const key = item.id || item.temp_id || `msg_${index}_${Date.now()}`;
+              return key;
+            }}
             contentContainerStyle={[
               styles.messagesList,
               { backgroundColor: theme.colors.background },
