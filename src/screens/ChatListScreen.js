@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../utils/supabase";
 import { useTheme } from "../contexts/ThemeContext";
+import onlineStatusService from "../services/onlineStatusService";
 
 export default function ChatListScreen({ navigation }) {
   const { theme } = useTheme();
@@ -74,6 +75,10 @@ export default function ChatListScreen({ navigation }) {
           .single();
 
         setCurrentUser(profile);
+
+        // Initialize online status service globally
+        await onlineStatusService.initialize(user.id);
+
         loadUnreadCounts();
       }
     } catch (error) {

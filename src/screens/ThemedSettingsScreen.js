@@ -19,6 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
 import { supabase } from "../../utils/supabase";
 import { encryptApiKey, decryptApiKey } from "../utils/translation";
+import onlineStatusService from "../services/onlineStatusService";
 
 const { width } = Dimensions.get('window');
 
@@ -34,6 +35,9 @@ const ThemedSettingsScreen = ({ navigation }) => {
   const [languages, setLanguages] = useState([]);
   const [languageSearch, setLanguageSearch] = useState("");
   const [testingApiKey, setTestingApiKey] = useState(false);
+  const [onlineStatusPrivacy, setOnlineStatusPrivacy] = useState("everyone");
+  const [lastSeenPrivacy, setLastSeenPrivacy] = useState("everyone");
+  const [showPrivacyPicker, setShowPrivacyPicker] = useState(null);
   
   // Animation references
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -94,6 +98,8 @@ const ThemedSettingsScreen = ({ navigation }) => {
       setProfile(data);
       setDisplayName(data.display_name || "");
       setSelectedLanguage(data.preferred_language || "en");
+      setOnlineStatusPrivacy(data.online_status_privacy || "everyone");
+      setLastSeenPrivacy(data.last_seen_privacy || "everyone");
 
       if (data.gemini_api_key_encrypted) {
         try {
@@ -170,6 +176,8 @@ const ThemedSettingsScreen = ({ navigation }) => {
           display_name: displayName.trim() || profile.username,
           preferred_language: selectedLanguage,
           gemini_api_key_encrypted: encryptedApiKey,
+          online_status_privacy: onlineStatusPrivacy,
+          last_seen_privacy: lastSeenPrivacy,
           updated_at: new Date().toISOString(),
         })
         .eq("id", profile.id);
@@ -285,6 +293,27 @@ const ThemedSettingsScreen = ({ navigation }) => {
     (lang) => lang.code === selectedLanguage
   );
 
+  const privacyOptions = [
+    {
+      key: 'everyone',
+      title: 'Everyone',
+      subtitle: 'All users can see this information',
+      icon: 'globe-outline'
+    },
+    {
+      key: 'contacts',
+      title: 'My Contacts',
+      subtitle: 'Only people you\'ve chatted with',
+      icon: 'people-outline'
+    },
+    {
+      key: 'nobody',
+      title: 'Nobody',
+      subtitle: 'Hide this information from everyone',
+      icon: 'eye-off-outline'
+    }
+  ];
+
 
   const renderLanguageItem = ({ item }) => (
     <TouchableOpacity
@@ -316,6 +345,52 @@ const ThemedSettingsScreen = ({ navigation }) => {
       )}
     </TouchableOpacity>
   );
+
+  const renderPrivacyItem = ({ item }) => {
+    const currentPrivacy = showPrivacyPicker === 'online_status' ? onlineStatusPrivacy : lastSeenPrivacy;
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.listItem,
+          {
+            backgroundColor: theme.colors.card,
+            borderColor: theme.colors.border,
+          },
+          currentPrivacy === item.key && {
+            borderColor: theme.colors.primary,
+            backgroundColor: theme.colors.primary + '10',
+          },
+        ]}
+        onPress={() => {
+          if (showPrivacyPicker === 'online_status') {
+            setOnlineStatusPrivacy(item.key);
+          } else {
+            setLastSeenPrivacy(item.key);
+          }
+          setShowPrivacyPicker(null);
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={styles.themeItemContent}>
+          <Ionicons
+            name={item.icon}
+            size={24}
+            color={currentPrivacy === item.key ? theme.colors.primary : theme.colors.textSecondary}
+          />
+          <View style={styles.themeItemText}>
+            <Text style={[styles.listItemTitle, { color: theme.colors.text }]}>{item.title}</Text>
+            <Text style={[styles.listItemSubtitle, { color: theme.colors.textSecondary }]}>
+              {item.subtitle}
+            </Text>
+          </View>
+        </View>
+        {currentPrivacy === item.key && (
+          <Ionicons name="checkmark-circle" size={24} color={theme.colors.primary} />
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   const renderThemeItem = ({ item }) => (
     <TouchableOpacity
@@ -552,6 +627,52 @@ const ThemedSettingsScreen = ({ navigation }) => {
             </View>
           </View>
 
+          {/* Privacy Section */}
+          <View style={[styles.section, { backgroundColor: theme.colors.card }, theme.shadows.md]}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="shield-checkmark" size={22} color={theme.colors.primary} />
+              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Privacy</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.settingRow, { borderColor: theme.colors.divider }]}
+              onPress={() => setShowPrivacyPicker('online_status')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.settingContent}>
+                <View style={styles.settingInfo}>
+                  <Text style={[styles.settingLabel, { color: theme.colors.text }]}>Online Status</Text>
+                  <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
+                    {onlineStatusPrivacy === 'everyone' ? 'Everyone' :
+                     onlineStatusPrivacy === 'contacts' ? 'My Contacts' : 'Nobody'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.settingRow, { borderColor: theme.colors.divider }]}
+              onPress={() => setShowPrivacyPicker('last_seen')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.settingContent}>
+                <View style={styles.settingInfo}>
+                  <Text style={[styles.settingLabel, { color: theme.colors.text }]}>Last Seen</Text>
+                  <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
+                    {lastSeenPrivacy === 'everyone' ? 'Everyone' :
+                     lastSeenPrivacy === 'contacts' ? 'My Contacts' : 'Nobody'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
+              </View>
+            </TouchableOpacity>
+
+            <Text style={[styles.helperText, { color: theme.colors.textSecondary }]}>
+              Control who can see your online status and when you were last active. "My Contacts" means only people you've chatted with.
+            </Text>
+          </View>
+
           {/* Progress Indicator */}
           {(saving || testingApiKey) && (
             <View style={[styles.progressContainer, { backgroundColor: theme.colors.card }, theme.shadows.sm]}>
@@ -664,6 +785,37 @@ const ThemedSettingsScreen = ({ navigation }) => {
               data={filteredLanguages}
               renderItem={renderLanguageItem}
               keyExtractor={(item) => item.code}
+              style={styles.modalList}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ padding: 20 }}
+            />
+          </View>
+        </Modal>
+
+        {/* Privacy Picker Modal */}
+        <Modal
+          visible={showPrivacyPicker !== null}
+          animationType="slide"
+          presentationStyle="pageSheet"
+        >
+          <View style={[styles.modalContainer, { backgroundColor: theme.colors.surface }]}>
+            <View style={[styles.modalHeader, {
+              backgroundColor: theme.colors.card,
+              borderBottomColor: theme.colors.border,
+            }]}>
+              <TouchableOpacity onPress={() => setShowPrivacyPicker(null)}>
+                <Text style={[styles.modalCancel, { color: theme.colors.primary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+                {showPrivacyPicker === 'online_status' ? 'Online Status Privacy' : 'Last Seen Privacy'}
+              </Text>
+              <View style={styles.modalSpacer} />
+            </View>
+
+            <FlatList
+              data={privacyOptions}
+              renderItem={renderPrivacyItem}
+              keyExtractor={(item) => item.key}
               style={styles.modalList}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ padding: 20 }}

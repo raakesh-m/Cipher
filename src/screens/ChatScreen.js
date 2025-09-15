@@ -25,6 +25,7 @@ import messageStatusService, {
   MessageStatus,
 } from "../services/messageStatusService";
 import typingService from "../services/typingService";
+import onlineStatusService from "../services/onlineStatusService";
 import MessageBubble from "../components/MessageBubble";
 import TypingIndicator from "../components/TypingIndicator";
 import ConnectionStatus from "../components/ConnectionStatus";
@@ -39,6 +40,7 @@ export default function ChatScreen({ route, navigation }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [typingUsers, setTypingUsers] = useState([]);
   const [profilesMap, setProfilesMap] = useState({});
+  const [otherUserStatus, setOtherUserStatus] = useState(null);
   const flatListRef = useRef(null);
   const previousInputText = useRef("");
   const typingTimeout = useRef(null);
@@ -50,7 +52,9 @@ export default function ChatScreen({ route, navigation }) {
     if (words.length === 1) {
       return words[0].charAt(0).toUpperCase();
     }
-    return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase();
+    return (
+      words[0].charAt(0) + words[words.length - 1].charAt(0)
+    ).toUpperCase();
   };
 
   useEffect(() => {
@@ -72,6 +76,7 @@ export default function ChatScreen({ route, navigation }) {
       supabase.auth.stopAutoRefresh();
       typingService.unsubscribeFromTyping(chatId, handleTypingUsersChange);
       messageStatusService.cleanup();
+      // Note: Don't cleanup onlineStatusService here as it's used app-wide
     };
   }, [chatId]);
 
@@ -111,7 +116,11 @@ export default function ChatScreen({ route, navigation }) {
         handleNewMessage
       )
       .on("broadcast", { event: "instant_message" }, handleInstantMessage)
-      .on("broadcast", { event: "instant_message_update" }, handleInstantMessageUpdate)
+      .on(
+        "broadcast",
+        { event: "instant_message_update" },
+        handleInstantMessageUpdate
+      )
       .subscribe((status) => {
         console.log("📡 Subscription status:", status);
         if (status === "SUBSCRIBED") {
@@ -167,6 +176,17 @@ export default function ChatScreen({ route, navigation }) {
 
       const currentUserProfile = { ...user, ...profile };
       setCurrentUser(currentUserProfile);
+
+      // Initialize online status service
+      await onlineStatusService.initialize(user.id);
+
+      // Subscribe to other user's online status
+      const otherUserId = otherUser?.id || otherUser?.user_id;
+      if (otherUserId) {
+        onlineStatusService.subscribeToUserStatus(otherUserId, (status) => {
+          setOtherUserStatus(status);
+        });
+      }
 
       // Build profiles map for typing indicators
       setProfilesMap((prev) => ({
@@ -232,7 +252,7 @@ export default function ChatScreen({ route, navigation }) {
     });
 
     const messageData = payload.payload;
-    
+
     // Skip own messages - translation updates are handled locally
     if (messageData?.sender_id === currentUser?.id) {
       console.log("⚠️ Skipping own translation update (handled locally)");
@@ -246,9 +266,12 @@ export default function ChatScreen({ route, navigation }) {
       const messageIndex = prev.findIndex(
         (msg) => msg.temp_id === messageData.temp_id
       );
-      
+
       if (messageIndex === -1) {
-        console.log("⚠️ No matching message found for translation update:", messageData.temp_id);
+        console.log(
+          "⚠️ No matching message found for translation update:",
+          messageData.temp_id
+        );
         return prev;
       }
 
@@ -296,7 +319,7 @@ export default function ChatScreen({ route, navigation }) {
     setMessages((prev) => {
       const messageExists = prev.some(
         (msg) =>
-          (msg.id && msg.id === messageData.id) || 
+          (msg.id && msg.id === messageData.id) ||
           (msg.temp_id && msg.temp_id === messageData.temp_id)
       );
       if (messageExists) {
@@ -343,15 +366,21 @@ export default function ChatScreen({ route, navigation }) {
           newMessageId: newMessage.id,
           newMessageTempId: newMessage.temp_id,
           totalExistingMessages: prev.length,
-          existingTempIds: prev.map(m => m.temp_id).filter(Boolean),
-          existingIds: prev.map(m => m.id).filter(Boolean),
-          messageContent: newMessage.content_original?.substring(0, 20) + "..."
+          existingTempIds: prev.map((m) => m.temp_id).filter(Boolean),
+          existingIds: prev.map((m) => m.id).filter(Boolean),
+          messageContent: newMessage.content_original?.substring(0, 20) + "...",
         });
 
         // First check for duplicate by database ID
-        const duplicateByIdIndex = prev.findIndex((msg) => msg.id === newMessage.id);
+        const duplicateByIdIndex = prev.findIndex(
+          (msg) => msg.id === newMessage.id
+        );
         if (duplicateByIdIndex !== -1) {
-          console.log("⚠️ Sender already has message with database ID:", newMessage.id, "- skipping");
+          console.log(
+            "⚠️ Sender already has message with database ID:",
+            newMessage.id,
+            "- skipping"
+          );
           return prev;
         }
 
@@ -359,15 +388,18 @@ export default function ChatScreen({ route, navigation }) {
         const existingMessageIndex = prev.findIndex(
           (msg) => msg.temp_id === newMessage.temp_id
         );
-        
+
         if (existingMessageIndex !== -1) {
           // Update existing optimistic message with database info
-          console.log("🔄 Updating sender's optimistic message with database info:", {
-            index: existingMessageIndex,
-            oldId: prev[existingMessageIndex].id,
-            newId: newMessage.id,
-            tempId: newMessage.temp_id
-          });
+          console.log(
+            "🔄 Updating sender's optimistic message with database info:",
+            {
+              index: existingMessageIndex,
+              oldId: prev[existingMessageIndex].id,
+              newId: newMessage.id,
+              tempId: newMessage.temp_id,
+            }
+          );
           const updated = [...prev];
           updated[existingMessageIndex] = {
             ...updated[existingMessageIndex],
@@ -375,12 +407,15 @@ export default function ChatScreen({ route, navigation }) {
             id: newMessage.id,
             status: newMessage.status || "delivered",
             // Remove temp_id once we have database ID to avoid key conflicts
-            temp_id: undefined
+            temp_id: undefined,
           };
           return updated;
         }
-        
-        console.log("⚠️ No matching optimistic message found, ignoring database message for sender:", newMessage.id);
+
+        console.log(
+          "⚠️ No matching optimistic message found, ignoring database message for sender:",
+          newMessage.id
+        );
         // Don't add new database messages for sender - they should only have optimistic -> updated flow
         return prev;
       });
@@ -408,15 +443,16 @@ export default function ChatScreen({ route, navigation }) {
           is_instant: false,
           status: newMessage.status || "delivered",
           // Remove temp_id once we have database ID to avoid key conflicts
-          temp_id: undefined
+          temp_id: undefined,
         };
         return updated;
       }
 
       // Check if message already exists by ID
-      const messageExists = prev.some((msg) => 
-        (msg.id && msg.id === newMessage.id) ||
-        (msg.temp_id && msg.temp_id === newMessage.temp_id)
+      const messageExists = prev.some(
+        (msg) =>
+          (msg.id && msg.id === newMessage.id) ||
+          (msg.temp_id && msg.temp_id === newMessage.temp_id)
       );
       if (messageExists) {
         console.log(
@@ -443,14 +479,13 @@ export default function ChatScreen({ route, navigation }) {
     }, 100);
   };
 
-
   const sendMessage = async () => {
     console.log("🚀 sendMessage called with:", {
       inputText: inputText.trim(),
       sending,
-      currentUser: currentUser?.id
+      currentUser: currentUser?.id,
     });
-    
+
     if (!inputText.trim() || sending) return;
 
     setSending(true);
@@ -488,20 +523,24 @@ export default function ChatScreen({ route, navigation }) {
       console.log("📱 Adding optimistic message:", {
         tempId,
         totalMessages: prev.length,
-        existingTempIds: prev.map(m => m.temp_id).filter(Boolean),
-        existingIds: prev.map(m => m.id).filter(Boolean)
+        existingTempIds: prev.map((m) => m.temp_id).filter(Boolean),
+        existingIds: prev.map((m) => m.id).filter(Boolean),
       });
-      
+
       // Double-check for duplicates before adding
-      const duplicateIndex = prev.findIndex(m => 
-        (m.temp_id && m.temp_id === tempId) || 
-        (m.id && m.id === tempId)
+      const duplicateIndex = prev.findIndex(
+        (m) => (m.temp_id && m.temp_id === tempId) || (m.id && m.id === tempId)
       );
       if (duplicateIndex !== -1) {
-        console.error("🚨 DUPLICATE DETECTED in optimistic add:", tempId, "already exists at index", duplicateIndex);
+        console.error(
+          "🚨 DUPLICATE DETECTED in optimistic add:",
+          tempId,
+          "already exists at index",
+          duplicateIndex
+        );
         return prev; // Don't add duplicate
       }
-      
+
       return [...prev, optimisticMessage];
     });
 
@@ -563,12 +602,14 @@ export default function ChatScreen({ route, navigation }) {
             console.log("🔄 Translation completed - updating message");
             setMessages((prev) =>
               prev.map((msg) =>
-                msg.temp_id === tempId ? { 
-                  ...msg, 
-                  content_translated: translationResult.translatedText,
-                  was_translated: true,
-                  detected_language: translationResult.detectedLanguage
-                } : msg
+                msg.temp_id === tempId
+                  ? {
+                      ...msg,
+                      content_translated: translationResult.translatedText,
+                      was_translated: true,
+                      detected_language: translationResult.detectedLanguage,
+                    }
+                  : msg
               )
             );
 
@@ -594,10 +635,12 @@ export default function ChatScreen({ route, navigation }) {
           // Update message with translation error
           setMessages((prev) =>
             prev.map((msg) =>
-              msg.temp_id === tempId ? { 
-                ...msg, 
-                translation_error: translationError.message
-              } : msg
+              msg.temp_id === tempId
+                ? {
+                    ...msg,
+                    translation_error: translationError.message,
+                  }
+                : msg
             )
           );
         }
@@ -650,7 +693,11 @@ export default function ChatScreen({ route, navigation }) {
 
       if (error) throw error;
 
-      console.log("✅ Message saved to database:", newMessage.id, "- will update optimistic message via real-time");
+      console.log(
+        "✅ Message saved to database:",
+        newMessage.id,
+        "- will update optimistic message via real-time"
+      );
 
       // 🔔 Send push notification (use translated content if available)
       const { data: recipientProfileForNotification } = await supabase
@@ -708,7 +755,6 @@ export default function ChatScreen({ route, navigation }) {
       setSending(false);
     }
   };
-
 
   // Handle text input changes for typing indicators
   const handleTextChange = (text) => {
@@ -843,7 +889,6 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-
   if (loading) {
     return (
       <View
@@ -867,7 +912,12 @@ export default function ChatScreen({ route, navigation }) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.threadBackground }]}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        { backgroundColor: theme.colors.threadBackground },
+      ]}
+    >
       {/* Custom Curved Header */}
       <View style={[styles.curvedHeader, { backgroundColor: "#FFFFFF" }]}>
         <View style={styles.headerTopRow}>
@@ -882,16 +932,29 @@ export default function ChatScreen({ route, navigation }) {
             <Text style={[styles.headerName, { color: "#000000" }]}>
               {otherUser?.display_name || otherUser?.username || "Chat"}
             </Text>
-            <Text style={[styles.headerStatus, { color: "rgba(0,0,0,0.6)" }]}>
-              Online
+            <Text style={[
+              styles.headerStatus,
+              { color: onlineStatusService.getStatusColor(otherUserStatus, theme) }
+            ]}>
+              {onlineStatusService.formatStatusText(otherUserStatus)}
             </Text>
           </View>
 
           <View style={styles.headerActions}>
-            <TouchableOpacity style={[styles.circularActionButton, { backgroundColor: theme.colors.threadBackground }]}>
+            <TouchableOpacity
+              style={[
+                styles.circularActionButton,
+                { backgroundColor: theme.colors.threadBackground },
+              ]}
+            >
               <Ionicons name="call" size={20} color="#FFFFFF" />
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.circularActionButton, { backgroundColor: theme.colors.threadBackground }]}>
+            <TouchableOpacity
+              style={[
+                styles.circularActionButton,
+                { backgroundColor: theme.colors.threadBackground },
+              ]}
+            >
               <Ionicons name="videocam" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -912,7 +975,8 @@ export default function ChatScreen({ route, navigation }) {
             keyExtractor={(item, index) => {
               // Prioritize database ID over temp_id to avoid duplicates
               // If we have both temp_id and id, use id for uniqueness
-              const key = item.id || item.temp_id || `msg_${index}_${Date.now()}`;
+              const key =
+                item.id || item.temp_id || `msg_${index}_${Date.now()}`;
               return key;
             }}
             contentContainerStyle={styles.messagesList}
@@ -955,7 +1019,7 @@ export default function ChatScreen({ route, navigation }) {
               style={[
                 styles.curvedTextInput,
                 {
-                  color: '#888888',
+                  color: "#888888",
                 },
               ]}
               value={inputText}
@@ -976,10 +1040,7 @@ export default function ChatScreen({ route, navigation }) {
               }}
             />
 
-            <TouchableOpacity
-              style={styles.attachButton}
-              onPress={pickImage}
-            >
+            <TouchableOpacity style={styles.attachButton} onPress={pickImage}>
               <Ionicons name="attach-outline" size={20} color="#CCCCCC" />
             </TouchableOpacity>
 
@@ -1011,48 +1072,48 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   curvedHeader: {
-    paddingTop: Platform.OS === 'ios' ? 0 : 20,
-    paddingBottom: 30,
+    paddingTop: Platform.OS === "ios" ? 0 : 10,
+    paddingBottom: 0,
     paddingHorizontal: 20,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
   headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: 12,
   },
   backButton: {
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerUserInfo: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
     marginHorizontal: 20,
   },
   headerName: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   headerStatus: {
     fontSize: 13,
     marginTop: 2,
   },
   headerActions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
   },
   circularActionButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -1153,7 +1214,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 8,
     gap: 8,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -1166,7 +1227,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#999999',
+    backgroundColor: "#999999",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1191,7 +1252,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 1,
