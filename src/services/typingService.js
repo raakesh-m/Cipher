@@ -138,6 +138,9 @@ class TypingService {
     console.log(`⌨️ User ${userId} started typing in chat ${chatId}`);
 
     try {
+      // Update database typing indicator
+      await this.updateTypingIndicator(chatId, userId, true);
+
       // Update presence
       const channelKey = `typing_${chatId}`;
       await realtimeService.sendPresence(channelKey, {
@@ -166,6 +169,9 @@ class TypingService {
     console.log(`⏹️ User ${userId} stopped typing in chat ${chatId}`);
 
     try {
+      // Update database typing indicator
+      await this.updateTypingIndicator(chatId, userId, false);
+
       // Update presence
       const channelKey = `typing_${chatId}`;
       await realtimeService.sendPresence(channelKey, {
@@ -181,6 +187,25 @@ class TypingService {
 
     } catch (error) {
       console.error('Error stopping typing indicator:', error);
+    }
+  }
+
+  // Helper method to update typing indicator in database
+  async updateTypingIndicator(chatId, userId, isTyping) {
+    try {
+      const { supabase } = await import('../../utils/supabase');
+      const { error } = await supabase.rpc('set_typing_status', {
+        p_chat_id: chatId,
+        p_user_id: userId,
+        p_is_typing: isTyping
+      });
+
+      if (error) {
+        console.warn('Failed to update typing indicator in database:', error);
+        // Don't throw - this is not critical, the broadcast will still work
+      }
+    } catch (error) {
+      console.warn('Error updating typing indicator:', error);
     }
   }
 

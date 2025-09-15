@@ -25,7 +25,7 @@ import MediaViewerScreen from "./src/screens/MediaViewerScreen";
 const Stack = createStackNavigator();
 
 function AppContent() {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigationRef = useRef();
@@ -110,7 +110,7 @@ function AppContent() {
   return (
     <SafeAreaProvider>
       <NavigationContainer ref={navigationRef}>
-        <StatusBar style={isDark ? "light" : "dark"} translucent={false} backgroundColor={theme.colors.background} />
+        <StatusBar style="dark" translucent={false} backgroundColor={theme.colors.surface} />
         <Stack.Navigator screenOptions={{ headerShown: false }}>
         {session ? (
           <>
@@ -122,11 +122,11 @@ function AppContent() {
                 headerShown: true,
                 headerBackTitleVisible: false,
                 headerTintColor: theme.colors.primary,
-                headerStyle: { 
-                  backgroundColor: theme.colors.background,
+                headerStyle: {
+                  backgroundColor: theme.colors.surface,
                 },
                 headerTitleStyle: {
-                  color: theme.colors.text,
+                  color: theme.colors.textPrimary,
                 },
               }}
             />
@@ -151,11 +151,11 @@ function AppContent() {
                 headerShown: true,
                 title: "New Chat",
                 headerTintColor: theme.colors.primary,
-                headerStyle: { 
-                  backgroundColor: theme.colors.background,
+                headerStyle: {
+                  backgroundColor: theme.colors.surface,
                 },
                 headerTitleStyle: {
-                  color: theme.colors.text,
+                  color: theme.colors.textPrimary,
                 },
               }}
             />

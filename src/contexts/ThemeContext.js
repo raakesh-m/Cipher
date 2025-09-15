@@ -1,6 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext } from 'react';
 
 const ThemeContext = createContext();
 
@@ -12,66 +10,75 @@ export const useTheme = () => {
   return context;
 };
 
-// Theme definitions
-const lightTheme = {
+// New design theme based on JSON specifications
+const designTheme = {
   mode: 'light',
   colors: {
-    // Background colors
-    background: '#ffffff',
-    surface: '#f8fafc',
-    card: '#ffffff',
-    
-    // Primary colors
-    primary: '#6366f1',
-    primaryLight: '#818cf8',
-    primaryDark: '#4338ca',
-    
-    // Secondary colors
-    secondary: '#10b981',
-    secondaryLight: '#34d399',
-    secondaryDark: '#059669',
-    
-    // Text colors
-    text: '#1f2937',
-    textSecondary: '#6b7280',
-    textTertiary: '#9ca3af',
-    
+    // Chat List Colors
+    primary: '#6C5CE7',
+    primaryDark: '#5444E0',
+    surface: '#FFFFFF',
+    textPrimary: '#1F2328',
+    textSecondary: '#6B7280',
+    divider: '#EEF0F4',
+    badge: '#6C5CE7',
+    badgeText: '#FFFFFF',
+
+    // Chat Thread Colors
+    threadBackground: '#5B4BDE',
+    incomingBubble: '#6F61FF',
+    incomingText: '#FFFFFF',
+    outgoingBubble: '#FFFFFF',
+    outgoingText: '#27303A',
+    chip: '#7A6CF8',
+    chipText: '#FFFFFF',
+
+    // Legacy mappings for compatibility
+    background: '#FFFFFF',
+    card: '#FFFFFF',
+    text: '#1F2328',
+    border: '#EEF0F4',
+
     // Status colors
     success: '#10b981',
     warning: '#f59e0b',
     error: '#ef4444',
     info: '#3b82f6',
-    
-    // Border and divider colors
-    border: '#e5e7eb',
-    divider: '#f3f4f6',
-    
+
     // Input colors
     inputBackground: '#f9fafb',
     inputBorder: '#d1d5db',
     inputPlaceholder: '#9ca3af',
-    
+
     // Translation colors
     translatedBackground: '#f0f9ff',
     translatedBorder: '#0ea5e9',
-    
+
     // Shadow
     shadow: '#000000',
-    
+
     // Overlay
     overlay: 'rgba(0, 0, 0, 0.5)',
   },
+  radius: {
+    lg: 20,
+    md: 14,
+    sm: 10,
+    bubble: 18,
+    input: 24,
+  },
   spacing: {
-    xs: 4,
+    xl: 24,
+    lg: 16,
+    md: 12,
     sm: 8,
-    md: 16,
-    lg: 24,
-    xl: 32,
+    msgGap: 8,
+    sectionGap: 16,
   },
   borderRadius: {
-    sm: 8,
-    md: 12,
-    lg: 16,
+    sm: 10,
+    md: 14,
+    lg: 20,
     xl: 24,
   },
   shadows: {
@@ -99,161 +106,10 @@ const lightTheme = {
   },
 };
 
-const darkTheme = {
-  mode: 'dark',
-  colors: {
-    // Background colors
-    background: '#0f172a',
-    surface: '#1e293b',
-    card: '#334155',
-    
-    // Primary colors
-    primary: '#818cf8',
-    primaryLight: '#a5b4fc',
-    primaryDark: '#6366f1',
-    
-    // Secondary colors
-    secondary: '#34d399',
-    secondaryLight: '#6ee7b7',
-    secondaryDark: '#10b981',
-    
-    // Text colors
-    text: '#f1f5f9',
-    textSecondary: '#cbd5e1',
-    textTertiary: '#94a3b8',
-    
-    // Status colors
-    success: '#34d399',
-    warning: '#fbbf24',
-    error: '#f87171',
-    info: '#60a5fa',
-    
-    // Border and divider colors
-    border: '#475569',
-    divider: '#334155',
-    
-    // Input colors
-    inputBackground: '#475569',
-    inputBorder: '#64748b',
-    inputPlaceholder: '#94a3b8',
-    
-    // Translation colors
-    translatedBackground: '#1e293b',
-    translatedBorder: '#0ea5e9',
-    
-    // Shadow
-    shadow: '#000000',
-    
-    // Overlay
-    overlay: 'rgba(0, 0, 0, 0.7)',
-  },
-  spacing: {
-    xs: 4,
-    sm: 8,
-    md: 16,
-    lg: 24,
-    xl: 32,
-  },
-  borderRadius: {
-    sm: 8,
-    md: 12,
-    lg: 16,
-    xl: 24,
-  },
-  shadows: {
-    sm: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.2,
-      shadowRadius: 2,
-      elevation: 2,
-    },
-    md: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 8,
-      elevation: 4,
-    },
-    lg: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.4,
-      shadowRadius: 16,
-      elevation: 8,
-    },
-  },
-};
-
-const THEME_STORAGE_KEY = '@cipher_theme_preference';
-
 export const ThemeProvider = ({ children }) => {
-  const systemColorScheme = useColorScheme();
-  const [themePreference, setThemePreference] = useState('system'); // 'light', 'dark', 'system'
-  const [currentTheme, setCurrentTheme] = useState(lightTheme);
-
-  // Load theme preference from storage
-  useEffect(() => {
-    loadThemePreference();
-  }, []);
-
-  // Update theme when system theme or preference changes
-  useEffect(() => {
-    updateCurrentTheme();
-  }, [themePreference, systemColorScheme]);
-
-  const loadThemePreference = async () => {
-    try {
-      const savedTheme = await AsyncStorage.getItem(THEME_STORAGE_KEY);
-      if (savedTheme) {
-        setThemePreference(savedTheme);
-      }
-    } catch (error) {
-      console.error('Error loading theme preference:', error);
-    }
-  };
-
-  const updateCurrentTheme = () => {
-    try {
-      let newTheme;
-
-      if (themePreference === 'system') {
-        newTheme = systemColorScheme === 'dark' ? darkTheme : lightTheme;
-      } else {
-        newTheme = themePreference === 'dark' ? darkTheme : lightTheme;
-      }
-
-      setCurrentTheme(newTheme);
-    } catch (error) {
-      console.error('Error updating theme:', error);
-      // Fallback to light theme in case of error
-      setCurrentTheme(lightTheme);
-    }
-  };
-
-  const setTheme = async (theme) => {
-    try {
-      // Validate theme value
-      if (!theme || !['light', 'dark', 'system'].includes(theme)) {
-        console.error('Invalid theme value:', theme);
-        return;
-      }
-
-      await AsyncStorage.setItem(THEME_STORAGE_KEY, theme);
-      setThemePreference(theme);
-    } catch (error) {
-      console.error('Error saving theme preference:', error);
-      // Still update the preference even if storage fails
-      setThemePreference(theme);
-    }
-  };
-
   const value = {
-    theme: currentTheme,
-    themePreference,
-    setTheme,
-    isDark: currentTheme.mode === 'dark',
-    systemTheme: systemColorScheme,
+    theme: designTheme,
+    isDark: false,
   };
 
   return (
@@ -263,4 +119,4 @@ export const ThemeProvider = ({ children }) => {
   );
 };
 
-export { lightTheme, darkTheme };
+export { designTheme };

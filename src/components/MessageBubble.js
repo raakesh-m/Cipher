@@ -110,17 +110,17 @@ const MessageBubble = ({
     styles.bubble,
     isOwnMessage ? [
       styles.ownBubble,
-      { backgroundColor: theme.colors.primary }
+      { backgroundColor: theme.colors.outgoingBubble }
     ] : [
       styles.otherBubble,
-      { 
-        backgroundColor: isTranslatedMessage() 
-          ? theme.colors.translatedBackground || theme.colors.surface
-          : theme.colors.surface,
-        borderColor: isTranslatedMessage() 
+      {
+        backgroundColor: isTranslatedMessage()
+          ? theme.colors.translatedBackground || theme.colors.incomingBubble
+          : theme.colors.incomingBubble,
+        borderColor: isTranslatedMessage()
           ? theme.colors.translatedBorder || theme.colors.primary
-          : theme.colors.border,
-        borderWidth: isTranslatedMessage() ? 2 : 1
+          : 'transparent',
+        borderWidth: isTranslatedMessage() ? 2 : 0
       }
     ],
     message.status === MessageStatus.FAILED && styles.failedBubble
@@ -129,7 +129,7 @@ const MessageBubble = ({
   const textStyle = [
     styles.messageText,
     {
-      color: isOwnMessage ? '#FFFFFF' : theme.colors.text
+      color: isOwnMessage ? theme.colors.outgoingText : theme.colors.incomingText
     }
   ];
 
@@ -161,9 +161,29 @@ const MessageBubble = ({
           </View>
         )}
 
-        <Text style={textStyle}>
-          {getDisplayContent()}
-        </Text>
+        {/* Render file attachment if message type is file */}
+        {message.message_type === 'file' ? (
+          <View style={styles.fileAttachment}>
+            <View style={[styles.fileIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+              <Ionicons name="document" size={24} color="#FFFFFF" />
+            </View>
+            <View style={styles.fileInfo}>
+              <Text style={[styles.fileName, { color: isOwnMessage ? theme.colors.outgoingText : theme.colors.incomingText }]}>
+                {message.file_name || 'Document.pdf'}
+              </Text>
+              <Text style={[styles.fileSize, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.7)' }]}>
+                {message.file_size || '269.18 KB'}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.downloadButton}>
+              <Ionicons name="download" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Text style={textStyle}>
+            {getDisplayContent()}
+          </Text>
+        )}
         
         <View style={styles.messageFooter}>
           <Text style={[
@@ -262,6 +282,39 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  fileAttachment: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
+  },
+  fileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fileInfo: {
+    flex: 1,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  fileSize: {
+    fontSize: 12,
+    fontWeight: '400',
+  },
+  downloadButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
 });
 

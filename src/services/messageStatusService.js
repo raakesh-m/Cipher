@@ -144,22 +144,36 @@ class MessageStatusService {
   // Mark all messages in chat as read
   async markChatAsRead(chatId, userId) {
     try {
-      const { error } = await supabase
-        .from('messages')
-        .update({ 
-          status: MessageStatus.READ,
-          read_at: new Date().toISOString()
-        })
-        .eq('chat_id', chatId)
-        .neq('sender_id', userId)
-        .neq('status', MessageStatus.READ);
+      // Try using the new database function first
+      const { data, error } = await supabase.rpc('mark_chat_messages_read', {
+        p_chat_id: chatId,
+        p_user_id: userId
+      });
 
       if (error) throw error;
 
-      console.log(`✅ All messages in chat ${chatId} marked as read`);
+      console.log(`✅ ${data || 0} messages in chat ${chatId} marked as read`);
 
     } catch (error) {
       console.error('Error marking chat as read:', error);
+
+      // Fallback to the old method
+      try {
+        const { error: fallbackError } = await supabase
+          .from('messages')
+          .update({
+            status: MessageStatus.READ,
+            read_at: new Date().toISOString()
+          })
+          .eq('chat_id', chatId)
+          .neq('sender_id', userId)
+          .neq('status', MessageStatus.READ);
+
+        if (fallbackError) throw fallbackError;
+        console.log(`✅ Fallback: All messages in chat ${chatId} marked as read`);
+      } catch (fallbackErr) {
+        console.error('Fallback mark as read failed:', fallbackErr);
+      }
     }
   }
 

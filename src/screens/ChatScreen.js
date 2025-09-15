@@ -44,9 +44,18 @@ export default function ChatScreen({ route, navigation }) {
   const typingTimeout = useRef(null);
   const previousTypingUsersLength = useRef(0);
 
+  const getInitials = (name) => {
+    if (!name) return "?";
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) {
+      return words[0].charAt(0).toUpperCase();
+    }
+    return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase();
+  };
+
   useEffect(() => {
     navigation.setOptions({
-      title: otherUser?.display_name || otherUser?.username || "Chat",
+      headerShown: false, // Hide the default header
     });
 
     // Start auth auto-refresh for React Native realtime reliability
@@ -858,11 +867,43 @@ export default function ChatScreen({ route, navigation }) {
   }
 
   return (
-    <View
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-    >
-      <SafeAreaView style={styles.safeArea}>
-        <ConnectionStatus />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.threadBackground }]}>
+      {/* Custom Curved Header */}
+      <View style={[styles.curvedHeader, { backgroundColor: "#FFFFFF" }]}>
+        <View style={styles.headerTopRow}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="chevron-back" size={24} color="#000000" />
+          </TouchableOpacity>
+
+          <View style={styles.headerUserInfo}>
+            <Text style={[styles.headerName, { color: "#000000" }]}>
+              {otherUser?.display_name || otherUser?.username || "Chat"}
+            </Text>
+            <Text style={[styles.headerStatus, { color: "rgba(0,0,0,0.6)" }]}>
+              Online
+            </Text>
+          </View>
+
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={[styles.circularActionButton, { backgroundColor: theme.colors.threadBackground }]}>
+              <Ionicons name="call" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.circularActionButton, { backgroundColor: theme.colors.threadBackground }]}>
+              <Ionicons name="videocam" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      <ConnectionStatus />
+      <KeyboardAvoidingView
+        style={styles.keyboardView}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      >
         <View style={styles.chatContainer}>
           <FlatList
             ref={flatListRef}
@@ -874,10 +915,7 @@ export default function ChatScreen({ route, navigation }) {
               const key = item.id || item.temp_id || `msg_${index}_${Date.now()}`;
               return key;
             }}
-            contentContainerStyle={[
-              styles.messagesList,
-              { backgroundColor: theme.colors.background },
-            ]}
+            contentContainerStyle={styles.messagesList}
             onContentSizeChange={() =>
               flatListRef.current?.scrollToEnd({ animated: true })
             }
@@ -897,87 +935,74 @@ export default function ChatScreen({ route, navigation }) {
             )}
           />
         </View>
-      </SafeAreaView>
-
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-      >
         <View
           style={[
             styles.inputContainer,
             {
-              backgroundColor: theme.colors.surface,
-              borderTopColor: theme.colors.border,
+              backgroundColor: theme.colors.threadBackground,
             },
           ]}
         >
-          <TouchableOpacity
-            style={[
-              styles.mediaButton,
-              {
-                backgroundColor: theme.colors.background,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            onPress={pickImage}
-          >
-            <Ionicons
-              name="image-outline"
-              size={22}
-              color={theme.colors.primary}
+          <View style={styles.curvedInputWrapper}>
+            <TouchableOpacity
+              style={styles.micButton}
+              onPress={() => {}} // Add microphone functionality here
+            >
+              <Ionicons name="mic" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <TextInput
+              style={[
+                styles.curvedTextInput,
+                {
+                  color: '#888888',
+                },
+              ]}
+              value={inputText}
+              onChangeText={handleTextChange}
+              placeholder="Ok. Let me check"
+              placeholderTextColor="#AAAAAA"
+              multiline
+              maxLength={1000}
+              onFocus={() => {
+                // Mark messages as read when user focuses input
+                if (currentUser?.id) {
+                  messageStatusService.markChatAsRead(chatId, currentUser.id);
+                }
+                // Scroll to bottom when keyboard opens
+                setTimeout(() => {
+                  flatListRef.current?.scrollToEnd({ animated: true });
+                }, 300);
+              }}
             />
-          </TouchableOpacity>
 
-          <TextInput
-            style={[
-              styles.textInput,
-              {
-                backgroundColor: theme.colors.inputBackground,
-                borderColor: theme.colors.inputBorder,
-                color: theme.colors.text,
-              },
-            ]}
-            value={inputText}
-            onChangeText={handleTextChange}
-            placeholder="Type a message..."
-            placeholderTextColor={theme.colors.inputPlaceholder}
-            multiline
-            maxLength={1000}
-            onFocus={() => {
-              // Mark messages as read when user focuses input
-              if (currentUser?.id) {
-                messageStatusService.markChatAsRead(chatId, currentUser.id);
-              }
-              // Scroll to bottom when keyboard opens
-              setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: true });
-              }, 300);
-            }}
-          />
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={pickImage}
+            >
+              <Ionicons name="attach-outline" size={20} color="#CCCCCC" />
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              {
-                backgroundColor:
-                  !inputText.trim() || sending
-                    ? theme.colors.textTertiary
-                    : theme.colors.primary,
-              },
-            ]}
-            onPress={sendMessage}
-            disabled={!inputText.trim() || sending}
-          >
-            {sending ? (
-              <ActivityIndicator size={16} color="#fff" />
-            ) : (
-              <Ionicons name="send" size={18} color="#fff" />
-            )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.curvedSendButton,
+                {
+                  backgroundColor: theme.colors.threadBackground,
+                },
+              ]}
+              onPress={sendMessage}
+              disabled={!inputText.trim() || sending}
+            >
+              {sending ? (
+                <ActivityIndicator size={16} color="#FFFFFF" />
+              ) : (
+                <Ionicons name="send" size={18} color="#FFFFFF" />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -985,7 +1010,58 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  safeArea: {
+  curvedHeader: {
+    paddingTop: Platform.OS === 'ios' ? 0 : 20,
+    paddingBottom: 30,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerUserInfo: {
+    flex: 1,
+    alignItems: 'center',
+    marginHorizontal: 20,
+  },
+  headerName: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  headerStatus: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  circularActionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  keyboardView: {
     flex: 1,
   },
   chatContainer: {
@@ -1006,8 +1082,9 @@ const styles = StyleSheet.create({
   },
   messagesList: {
     paddingVertical: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     flexGrow: 1,
+    paddingBottom: 10,
   },
   messageContainer: {
     maxWidth: "75%",
@@ -1063,36 +1140,64 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   inputContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+  },
+  curvedInputWrapper: {
     flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 25,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     gap: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  mediaButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  micButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#999999',
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 1,
   },
-  textInput: {
+  curvedTextInput: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
     fontSize: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     maxHeight: 100,
-    minHeight: 44,
+    minHeight: 36,
   },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  attachButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     justifyContent: "center",
     alignItems: "center",
+  },
+  curvedSendButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
 });

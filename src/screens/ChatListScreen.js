@@ -17,30 +17,112 @@ import { supabase } from "../../utils/supabase";
 import { useTheme } from "../contexts/ThemeContext";
 
 export default function ChatListScreen({ navigation }) {
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState('all');
+  const [currentUser, setCurrentUser] = useState(null);
+  const [typingUsers, setTypingUsers] = useState({});
+  const [unreadCounts, setUnreadCounts] = useState({});
 
   useEffect(() => {
+    loadCurrentUser();
     loadChats();
 
     // Subscribe to new messages for real-time updates
-    const subscription = supabase
+    const messagesSubscription = supabase
       .channel("messages")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "messages" },
         () => {
           loadChats();
+          loadUnreadCounts();
         }
       )
       .subscribe();
 
+    // Subscribe to typing indicators
+    const typingSubscription = supabase
+      .channel("typing_global")
+      .on("broadcast", { event: "typing" }, (payload) => {
+        const { chatId, userId, isTyping } = payload.payload;
+        if (userId !== currentUser?.id) {
+          setTypingUsers(prev => ({
+            ...prev,
+            [chatId]: isTyping ? userId : null
+          }));
+        }
+      })
+      .subscribe();
+
     return () => {
-      subscription.unsubscribe();
+      messagesSubscription.unsubscribe();
+      typingSubscription.unsubscribe();
     };
-  }, []);
+  }, [currentUser?.id]);
+
+  const loadCurrentUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        setCurrentUser(profile);
+        loadUnreadCounts();
+      }
+    } catch (error) {
+      console.error('Error loading current user:', error);
+    }
+  };
+
+  const loadUnreadCounts = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Use the new database function for better performance
+      const { data: unreadData, error } = await supabase.rpc('get_unread_counts', {
+        p_user_id: user.id
+      });
+
+      if (error) throw error;
+
+      // Convert to object format
+      const unreadCountsMap = {};
+      unreadData?.forEach(row => {
+        unreadCountsMap[row.chat_id] = row.unread_count;
+      });
+
+      setUnreadCounts(unreadCountsMap);
+    } catch (error) {
+      console.error('Error loading unread counts:', error);
+      // Fallback to the old method if the function doesn't exist yet
+      try {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('messages')
+          .select('chat_id, id')
+          .neq('sender_id', user.id)
+          .is('read_at', null);
+
+        if (fallbackError) throw fallbackError;
+
+        const unreadCountsMap = {};
+        fallbackData?.forEach(message => {
+          unreadCountsMap[message.chat_id] = (unreadCountsMap[message.chat_id] || 0) + 1;
+        });
+
+        setUnreadCounts(unreadCountsMap);
+      } catch (fallbackErr) {
+        console.error('Fallback unread count loading failed:', fallbackErr);
+      }
+    }
+  };
 
   const loadChats = async () => {
     try {
@@ -111,6 +193,7 @@ export default function ChatListScreen({ navigation }) {
   const onRefresh = () => {
     setRefreshing(true);
     loadChats();
+    loadUnreadCounts();
   };
 
   const handleSignOut = async () => {
@@ -146,62 +229,115 @@ export default function ChatListScreen({ navigation }) {
     }
   };
 
-  const renderChatItem = ({ item }) => (
+  const getInitials = (name) => {
+    if (!name) return "?";
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) {
+      return words[0].charAt(0).toUpperCase();
+    }
+    return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase();
+  };
+
+  const tabs = [
+    { id: 'all', label: 'All Chats' },
+    { id: 'groups', label: 'Groups' }
+  ];
+
+  const renderTabItem = ({ item }) => (
     <TouchableOpacity
       style={[
-        styles.chatItem,
-        {
-          backgroundColor: theme.colors.card,
-          borderColor: theme.colors.border,
-          ...theme.shadows.sm,
-        },
+        styles.tabItem,
+        activeTab === item.id && [styles.activeTabItem, { backgroundColor: theme.colors.primary }]
       ]}
-      onPress={() =>
-        navigation.navigate("Chat", {
-          chatId: item.id,
-          otherUser: item.otherUser,
-        })
-      }
+      onPress={() => setActiveTab(item.id)}
     >
-      <View style={[
-        styles.avatar,
-        { backgroundColor: theme.colors.primary }
+      <Text style={[
+        styles.tabText,
+        { color: activeTab === item.id ? '#FFFFFF' : theme.colors.textSecondary },
+        activeTab === item.id && styles.activeTabText
       ]}>
-        <Text style={styles.avatarText}>
-          {item.otherUser?.display_name?.charAt(0).toUpperCase() || "?"}
-        </Text>
-      </View>
+        {item.label}
+      </Text>
+    </TouchableOpacity>
+  );
 
-      <View style={styles.chatInfo}>
-        <View style={styles.chatHeader}>
-          <Text style={[
-            styles.chatName,
-            { color: theme.colors.text }
-          ]}>
-            {item.otherUser?.display_name ||
-              item.otherUser?.username ||
-              "Unknown User"}
-          </Text>
-          <Text style={[
-            styles.chatTime,
-            { color: theme.colors.textTertiary }
-          ]}>
-            {formatTime(item.latestMessage?.created_at)}
+  const renderChatItem = ({ item }) => {
+    // Get live data instead of hardcoded values
+    const unreadCount = unreadCounts[item.id] || 0;
+    const isPinned = false; // TODO: Implement pinned chats feature
+    const isTyping = !!typingUsers[item.id];
+
+    return (
+      <TouchableOpacity
+        style={[
+          styles.chatItem,
+          { borderBottomColor: theme.colors.divider }
+        ]}
+        onPress={() =>
+          navigation.navigate("Chat", {
+            chatId: item.id,
+            otherUser: item.otherUser,
+          })
+        }
+      >
+        <View style={[
+          styles.avatar,
+          { backgroundColor: theme.colors.primary }
+        ]}>
+          <Text style={styles.avatarText}>
+            {getInitials(item.otherUser?.display_name || item.otherUser?.username)}
           </Text>
         </View>
 
-        <Text 
-          style={[
-            styles.chatPreview,
-            { color: theme.colors.textSecondary }
-          ]} 
-          numberOfLines={1}
-        >
-          {formatMessagePreview(item.latestMessage)}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.chatInfo}>
+          <View style={styles.chatHeader}>
+            <View style={styles.nameRow}>
+              <Text style={[
+                styles.chatName,
+                { color: theme.colors.textPrimary }
+              ]}>
+                {item.otherUser?.display_name ||
+                  item.otherUser?.username ||
+                  "Unknown User"}
+              </Text>
+              {isPinned && (
+                <Ionicons
+                  name="pin"
+                  size={14}
+                  color={theme.colors.primary}
+                  style={styles.pinIcon}
+                />
+              )}
+            </View>
+            <View style={styles.timeRow}>
+              {unreadCount > 0 && (
+                <View style={[styles.unreadBadge, { backgroundColor: theme.colors.primary }]}>
+                  <Text style={styles.unreadText}>{unreadCount}</Text>
+                </View>
+              )}
+              <Text style={[
+                styles.chatTime,
+                { color: theme.colors.textSecondary }
+              ]}>
+                {formatTime(item.latestMessage?.created_at)}
+              </Text>
+            </View>
+          </View>
+
+          <Text
+            style={[
+              styles.chatPreview,
+              { color: isTyping ? theme.colors.primary : theme.colors.textSecondary },
+              isTyping && styles.typingText
+            ]}
+            numberOfLines={1}
+          >
+            {isTyping ? "Typing..." : formatMessagePreview(item.latestMessage)}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
@@ -250,76 +386,89 @@ export default function ChatListScreen({ navigation }) {
           styles.header,
           {
             backgroundColor: theme.colors.surface,
-            borderBottomColor: theme.colors.border,
-            ...theme.shadows.sm,
+            borderBottomColor: theme.colors.divider,
           },
         ]}>
-          <Text style={[
-            styles.title,
-            { color: theme.colors.text }
-          ]}>Chats</Text>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity
-              style={[
-                styles.headerButton,
-                {
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-              onPress={() => navigation.navigate("UserSearch")}
-            >
-              <Ionicons name="add" size={20} color={theme.colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.headerButton,
-                {
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-              onPress={() => navigation.navigate("Profile")}
-            >
-              <Ionicons name="person-outline" size={20} color={theme.colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.headerButton,
-                {
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-              onPress={() => navigation.navigate("Settings")}
-            >
-              <Ionicons name="settings-outline" size={20} color={theme.colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[
-                styles.headerButton,
-                {
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.border,
-                },
-              ]} 
-              onPress={handleSignOut}
-            >
-              <Ionicons name="log-out-outline" size={20} color={theme.colors.error} />
-            </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <View style={styles.greetingSection}>
+              <Text style={[
+                styles.greeting,
+                { color: theme.colors.textPrimary }
+              ]}>
+                Hello,
+              </Text>
+              <Text style={[
+                styles.userName,
+                { color: theme.colors.textPrimary }
+              ]}>
+                {(currentUser?.display_name || currentUser?.username || 'User').split(' ')[0]}
+              </Text>
+            </View>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                style={styles.headerActionButton}
+                onPress={() => navigation.navigate("UserSearch")}
+              >
+                <Ionicons name="search" size={24} color={theme.colors.textPrimary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.headerActionButton}
+                onPress={() => navigation.navigate("Profile")}
+              >
+                <Ionicons name="ellipsis-vertical" size={24} color={theme.colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        {chats.length === 0 ? (
+        {/* Tab Navigation */}
+        <View style={[
+          styles.tabContainer,
+          { backgroundColor: theme.colors.surface }
+        ]}>
+          <FlatList
+            data={tabs}
+            renderItem={renderTabItem}
+            keyExtractor={(item) => item.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.tabContent}
+          />
+        </View>
+
+        {activeTab === 'groups' ? (
           <View style={styles.emptyState}>
             <View style={[
               styles.emptyIcon,
               { backgroundColor: theme.colors.surface }
             ]}>
-              <Ionicons 
-                name="chatbubbles-outline" 
-                size={48} 
-                color={theme.colors.textTertiary} 
+              <Ionicons
+                name="people-outline"
+                size={48}
+                color={theme.colors.textTertiary}
+              />
+            </View>
+            <Text style={[
+              styles.emptyText,
+              { color: theme.colors.text }
+            ]}>Groups Coming Soon</Text>
+            <Text style={[
+              styles.emptySubtext,
+              { color: theme.colors.textSecondary }
+            ]}>
+              Group chats feature is currently under development and will be available soon!
+            </Text>
+          </View>
+        ) : chats.length === 0 ? (
+          <View style={styles.emptyState}>
+            <View style={[
+              styles.emptyIcon,
+              { backgroundColor: theme.colors.surface }
+            ]}>
+              <Ionicons
+                name="chatbubbles-outline"
+                size={48}
+                color={theme.colors.textTertiary}
               />
             </View>
             <Text style={[
@@ -345,24 +494,32 @@ export default function ChatListScreen({ navigation }) {
           </View>
         ) : (
           <FlatList
-            data={chats}
+            data={activeTab === 'all' ? chats : []}
             renderItem={renderChatItem}
             keyExtractor={(item) => item.id}
             refreshControl={
-              <RefreshControl 
-                refreshing={refreshing} 
+              <RefreshControl
+                refreshing={refreshing}
                 onRefresh={onRefresh}
                 tintColor={theme.colors.primary}
                 colors={[theme.colors.primary]}
               />
             }
-            contentContainerStyle={[
-              styles.chatList,
-              { backgroundColor: theme.colors.background }
-            ]}
+            contentContainerStyle={styles.chatList}
             showsVerticalScrollIndicator={false}
           />
         )}
+
+        {/* FAB */}
+        <TouchableOpacity
+          style={[
+            styles.fab,
+            { backgroundColor: theme.colors.primary }
+          ]}
+          onPress={onRefresh}
+        >
+          <Ionicons name="refresh" size={24} color={theme.colors.badgeText} />
+        </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -386,29 +543,73 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 16,
     borderBottomWidth: 1,
   },
-  title: {
-    fontSize: 32,
+  headerContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  greetingSection: {
+    flexDirection: "column",
+  },
+  greeting: {
+    fontSize: 16,
+    fontWeight: "400",
+    color: "#666",
+    marginBottom: 2,
+  },
+  userName: {
+    fontSize: 28,
     fontWeight: "700",
     letterSpacing: -0.5,
   },
-  headerButtons: {
+  headerActions: {
     flexDirection: "row",
-    gap: 8,
+    gap: 16,
   },
-  headerButton: {
-    width: 40,
-    height: 40,
+  headerActionButton: {
+    padding: 8,
+  },
+  tabContainer: {
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+  },
+  tabContent: {
+    gap: 12,
+  },
+  tabItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
     borderRadius: 20,
+    backgroundColor: 'transparent',
+  },
+  activeTabItem: {
+    borderRadius: 20,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  activeTabText: {
+    fontWeight: "600",
+  },
+  fab: {
+    position: "absolute",
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 1,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   emptyState: {
     flex: 1,
@@ -450,21 +651,21 @@ const styles = StyleSheet.create({
   },
   chatList: {
     paddingVertical: 12,
+    paddingHorizontal: 24,
   },
   chatItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
     paddingVertical: 16,
-    marginHorizontal: 16,
-    marginVertical: 6,
-    borderRadius: 16,
-    borderWidth: 1,
+    paddingHorizontal: 0,
+    minHeight: 76,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
   },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
@@ -483,10 +684,36 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 6,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  timeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   chatName: {
     fontSize: 17,
     fontWeight: "600",
     letterSpacing: -0.2,
+  },
+  pinIcon: {
+    marginLeft: 6,
+  },
+  unreadBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  unreadText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "600",
   },
   chatTime: {
     fontSize: 13,
@@ -495,5 +722,8 @@ const styles = StyleSheet.create({
   chatPreview: {
     fontSize: 15,
     lineHeight: 20,
+  },
+  typingText: {
+    fontStyle: "italic",
   },
 });

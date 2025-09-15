@@ -19,12 +19,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
 import { supabase } from "../../utils/supabase";
 import { encryptApiKey, decryptApiKey } from "../utils/translation";
-import AnimatedThemeToggle from "../components/AnimatedThemeToggle";
 
 const { width } = Dimensions.get('window');
 
 const ThemedSettingsScreen = ({ navigation }) => {
-  const { theme, themePreference, setTheme, isDark } = useTheme();
+  const { theme, isDark } = useTheme();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -32,7 +31,6 @@ const ThemedSettingsScreen = ({ navigation }) => {
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [selectedLanguage, setSelectedLanguage] = useState("en");
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
-  const [showThemePicker, setShowThemePicker] = useState(false);
   const [languages, setLanguages] = useState([]);
   const [languageSearch, setLanguageSearch] = useState("");
   const [testingApiKey, setTestingApiKey] = useState(false);
@@ -43,29 +41,7 @@ const ThemedSettingsScreen = ({ navigation }) => {
   const testButtonScale = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
   const successAnim = useRef(new Animated.Value(0)).current;
-  const themeToggleAnim = useRef(new Animated.Value(isDark ? 1 : 0)).current;
 
-  // Theme options
-  const themeOptions = [
-    {
-      key: 'system',
-      title: 'System',
-      subtitle: 'Follow system theme',
-      icon: 'phone-portrait',
-    },
-    {
-      key: 'light',
-      title: 'Light',
-      subtitle: 'Always use light theme',
-      icon: 'sunny',
-    },
-    {
-      key: 'dark',
-      title: 'Dark',
-      subtitle: 'Always use dark theme',
-      icon: 'moon',
-    },
-  ];
 
   useEffect(() => {
     loadProfile();
@@ -86,14 +62,6 @@ const ThemedSettingsScreen = ({ navigation }) => {
     ]).start();
   }, []);
 
-  // Animate theme toggle when theme changes
-  useEffect(() => {
-    Animated.timing(themeToggleAnim, {
-      toValue: isDark ? 1 : 0,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
-  }, [isDark]);
 
   const animateButton = (animValue, callback) => {
     Animated.sequence([
@@ -305,13 +273,6 @@ const ThemedSettingsScreen = ({ navigation }) => {
     );
   };
 
-  const handleThemeChange = (newTheme) => {
-    setTheme(newTheme);
-    setShowThemePicker(false);
-    
-    // Small haptic-like animation
-    animateButton(testButtonScale);
-  };
 
   const filteredLanguages = languages.filter(
     (lang) =>
@@ -324,9 +285,6 @@ const ThemedSettingsScreen = ({ navigation }) => {
     (lang) => lang.code === selectedLanguage
   );
 
-  const selectedThemeData = themeOptions.find(
-    (option) => option.key === themePreference
-  );
 
   const renderLanguageItem = ({ item }) => (
     <TouchableOpacity
@@ -459,49 +417,6 @@ const ThemedSettingsScreen = ({ navigation }) => {
           ]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Appearance Section */}
-          <View style={[styles.section, { backgroundColor: theme.colors.card }, theme.shadows.md]}>
-            <View style={styles.sectionHeader}>
-              <Ionicons name="color-palette" size={22} color={theme.colors.primary} />
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Appearance</Text>
-            </View>
-
-            <View style={[styles.settingRow, { borderColor: theme.colors.divider }]}>
-              <View style={styles.settingContent}>
-                <View style={styles.settingInfo}>
-                  <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
-                    Dark Mode
-                  </Text>
-                  <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
-                    {isDark ? 'Enabled' : 'Disabled'}
-                  </Text>
-                </View>
-                <View style={styles.settingAction}>
-                  <AnimatedThemeToggle 
-                    onToggle={(newTheme) => {
-                      // Optional callback for additional actions
-                      console.log('Theme switched to:', newTheme);
-                    }}
-                  />
-                </View>
-              </View>
-            </View>
-
-            {/* Advanced Theme Options */}
-            <TouchableOpacity
-              style={[styles.advancedThemeRow]}
-              onPress={() => setShowThemePicker(true)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.advancedThemeContent}>
-                <Ionicons name="settings" size={16} color={theme.colors.textSecondary} />
-                <Text style={[styles.advancedThemeText, { color: theme.colors.textSecondary }]}>
-                  Advanced Options
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.textTertiary} />
-              </View>
-            </TouchableOpacity>
-          </View>
 
           {/* Profile Section */}
           <View style={[styles.section, { backgroundColor: theme.colors.card }, theme.shadows.md]}>
