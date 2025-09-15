@@ -214,23 +214,37 @@ export const ThemeProvider = ({ children }) => {
   };
 
   const updateCurrentTheme = () => {
-    let newTheme;
-    
-    if (themePreference === 'system') {
-      newTheme = systemColorScheme === 'dark' ? darkTheme : lightTheme;
-    } else {
-      newTheme = themePreference === 'dark' ? darkTheme : lightTheme;
+    try {
+      let newTheme;
+
+      if (themePreference === 'system') {
+        newTheme = systemColorScheme === 'dark' ? darkTheme : lightTheme;
+      } else {
+        newTheme = themePreference === 'dark' ? darkTheme : lightTheme;
+      }
+
+      setCurrentTheme(newTheme);
+    } catch (error) {
+      console.error('Error updating theme:', error);
+      // Fallback to light theme in case of error
+      setCurrentTheme(lightTheme);
     }
-    
-    setCurrentTheme(newTheme);
   };
 
   const setTheme = async (theme) => {
     try {
+      // Validate theme value
+      if (!theme || !['light', 'dark', 'system'].includes(theme)) {
+        console.error('Invalid theme value:', theme);
+        return;
+      }
+
       await AsyncStorage.setItem(THEME_STORAGE_KEY, theme);
       setThemePreference(theme);
     } catch (error) {
       console.error('Error saving theme preference:', error);
+      // Still update the preference even if storage fails
+      setThemePreference(theme);
     }
   };
 

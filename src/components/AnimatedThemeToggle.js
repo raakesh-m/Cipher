@@ -11,12 +11,16 @@ import { useTheme } from '../contexts/ThemeContext';
 
 const AnimatedThemeToggle = ({ onToggle, style }) => {
   const { theme, themePreference, setTheme, isDark } = useTheme();
-  
+
   // Animation values
   const toggleAnimation = useRef(new Animated.Value(isDark ? 1 : 0)).current;
   const scaleAnimation = useRef(new Animated.Value(1)).current;
   const rotateAnimation = useRef(new Animated.Value(0)).current;
   const pulseAnimation = useRef(new Animated.Value(1)).current;
+
+  // Refs to track animation instances for cleanup
+  const pulseLoopRef = useRef(null);
+  const themeAnimationRef = useRef(null);
   
   // Colors for interpolation
   const lightColor = '#FFD700'; // Golden sun
@@ -25,8 +29,13 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
   const toggleBgDark = '#2D3748';
 
   useEffect(() => {
+    // Stop any running theme animation
+    if (themeAnimationRef.current) {
+      themeAnimationRef.current.stop();
+    }
+
     // Animate toggle position when theme changes
-    Animated.parallel([
+    themeAnimationRef.current = Animated.parallel([
       Animated.spring(toggleAnimation, {
         toValue: isDark ? 1 : 0,
         useNativeDriver: false,
@@ -45,12 +54,25 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
           useNativeDriver: true,
         }),
       ]),
-    ]).start();
+    ]);
+
+    themeAnimationRef.current.start();
+
+    return () => {
+      if (themeAnimationRef.current) {
+        themeAnimationRef.current.stop();
+      }
+    };
   }, [isDark]);
 
   // Continuous pulse animation for active state
   useEffect(() => {
-    const pulseLoop = Animated.loop(
+    // Stop any existing pulse animation
+    if (pulseLoopRef.current) {
+      pulseLoopRef.current.stop();
+    }
+
+    pulseLoopRef.current = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnimation, {
           toValue: 1.05,
@@ -65,56 +87,92 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
       ]),
       { iterations: -1 }
     );
-    pulseLoop.start();
-    
-    return () => pulseLoop.stop();
+
+    pulseLoopRef.current.start();
+
+    return () => {
+      if (pulseLoopRef.current) {
+        pulseLoopRef.current.stop();
+        pulseLoopRef.current = null;
+      }
+    };
+  }, []);
+
+  // Cleanup all animations on component unmount
+  useEffect(() => {
+    return () => {
+      // Stop all animations
+      if (pulseLoopRef.current) {
+        pulseLoopRef.current.stop();
+        pulseLoopRef.current = null;
+      }
+      if (themeAnimationRef.current) {
+        themeAnimationRef.current.stop();
+        themeAnimationRef.current = null;
+      }
+
+      // Reset animation values to prevent memory leaks
+      toggleAnimation.stopAnimation();
+      scaleAnimation.stopAnimation();
+      rotateAnimation.stopAnimation();
+      pulseAnimation.stopAnimation();
+    };
   }, []);
 
   const handlePress = () => {
-    // Haptic feedback and scale animation
-    Animated.sequence([
-      Animated.timing(scaleAnimation, {
-        toValue: 0.95,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnimation, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    try {
+      // Haptic feedback and scale animation
+      Animated.sequence([
+        Animated.timing(scaleAnimation, {
+          toValue: 0.95,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnimation, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
 
-    // Toggle between light and dark (skip system for toggle)
-    const newTheme = isDark ? 'light' : 'dark';
-    setTheme(newTheme);
-    onToggle?.(newTheme);
+      // Toggle between light and dark (skip system for toggle)
+      const newTheme = isDark ? 'light' : 'dark';
+      setTheme(newTheme);
+      onToggle?.(newTheme);
+    } catch (error) {
+      console.error('Error in handlePress:', error);
+    }
   };
 
   // Interpolated values for smooth transitions
   const togglePosition = toggleAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: [4, 36], // Position of the toggle button
+    extrapolate: 'clamp',
   });
 
   const backgroundColor = toggleAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: [toggleBgLight, toggleBgDark],
+    extrapolate: 'clamp',
   });
 
   const iconColor = toggleAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: [lightColor, '#FFFFFF'],
+    extrapolate: 'clamp',
   });
 
   const shadowOpacity = toggleAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: [0.2, 0.4],
+    extrapolate: 'clamp',
   });
 
   const rotateValue = rotateAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: ['0deg', '360deg'],
+    extrapolate: 'clamp',
   });
 
   return (
@@ -156,6 +214,7 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
                   opacity: toggleAnimation.interpolate({
                     inputRange: [0, 0.5, 1],
                     outputRange: [0.3, 0.1, 0],
+                    extrapolate: 'clamp',
                   }),
                 },
               ]}
@@ -172,6 +231,7 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
                   opacity: toggleAnimation.interpolate({
                     inputRange: [0, 0.5, 1],
                     outputRange: [0, 0.1, 0.3],
+                    extrapolate: 'clamp',
                   }),
                 },
               ]}
@@ -205,6 +265,7 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
               <Animated.View style={{ opacity: toggleAnimation.interpolate({
                 inputRange: [0, 0.3, 0.7, 1],
                 outputRange: [1, 0, 0, 0],
+                extrapolate: 'clamp',
               })}}>
                 <Ionicons name="sunny" size={18} color={lightColor} />
               </Animated.View>
@@ -217,6 +278,7 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
                     opacity: toggleAnimation.interpolate({
                       inputRange: [0, 0.3, 0.7, 1],
                       outputRange: [0, 0, 0, 1],
+                      extrapolate: 'clamp',
                     }),
                   },
                 ]}
@@ -234,12 +296,14 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
                   opacity: toggleAnimation.interpolate({
                     inputRange: [0, 1],
                     outputRange: [0.3, 0.5],
+                    extrapolate: 'clamp',
                   }),
                   transform: [
                     {
                       scale: pulseAnimation.interpolate({
                         inputRange: [1, 1.05],
                         outputRange: [1, 1.2],
+                        extrapolate: 'clamp',
                       }),
                     },
                   ],
@@ -257,6 +321,7 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
               opacity: toggleAnimation.interpolate({
                 inputRange: [0, 0.2, 0.8, 1],
                 outputRange: [0, 1, 1, 0],
+                extrapolate: 'clamp',
               }),
             },
           ]}
@@ -270,23 +335,27 @@ const AnimatedThemeToggle = ({ onToggle, style }) => {
                   opacity: pulseAnimation.interpolate({
                     inputRange: [1, 1.05],
                     outputRange: [0.6, 1],
+                    extrapolate: 'clamp',
                   }),
                   transform: [
                     {
                       translateY: pulseAnimation.interpolate({
                         inputRange: [1, 1.05],
                         outputRange: [0, -2 - index],
+                        extrapolate: 'clamp',
                       }),
                     },
                     {
-                      translateX: index % 2 === 0 ? 
+                      translateX: index % 2 === 0 ?
                         pulseAnimation.interpolate({
                           inputRange: [1, 1.05],
                           outputRange: [0, 1],
+                          extrapolate: 'clamp',
                         }) :
                         pulseAnimation.interpolate({
                           inputRange: [1, 1.05],
                           outputRange: [0, -1],
+                          extrapolate: 'clamp',
                         })
                     },
                   ],
