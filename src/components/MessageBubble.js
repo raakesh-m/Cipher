@@ -16,34 +16,45 @@ const MessageBubble = ({
 
   const getStatusIcon = () => {
     if (!isOwnMessage) return null;
-    
+
     switch (message.status) {
       case MessageStatus.SENDING:
+        // Clock icon while message is being sent
         return <Ionicons name="time-outline" size={14} color={theme.colors.textTertiary} />;
+
       case MessageStatus.SENT:
+        // Single gray checkmark - message sent to server
         return <Ionicons name="checkmark" size={14} color={theme.colors.textSecondary} />;
+
       case MessageStatus.DELIVERED:
+        // Double gray checkmarks - delivered to recipient's device
         return (
           <View style={styles.doubleCheckmark}>
             <Ionicons name="checkmark" size={14} color={theme.colors.textSecondary} />
             <Ionicons name="checkmark" size={14} color={theme.colors.textSecondary} style={styles.secondCheck} />
           </View>
         );
+
       case MessageStatus.READ:
+        // Double blue checkmarks - read by recipient
         return (
           <View style={styles.doubleCheckmark}>
             <Ionicons name="checkmark" size={14} color={theme.colors.primary} />
             <Ionicons name="checkmark" size={14} color={theme.colors.primary} style={styles.secondCheck} />
           </View>
         );
+
       case MessageStatus.FAILED:
+        // Red alert icon for failed messages
         return (
           <TouchableOpacity onPress={onRetry} style={styles.retryButton}>
             <Ionicons name="alert-circle" size={14} color={theme.colors.error} />
           </TouchableOpacity>
         );
+
       default:
-        return null;
+        // Fallback to sent status
+        return <Ionicons name="checkmark" size={14} color={theme.colors.textSecondary} />;
     }
   };
 

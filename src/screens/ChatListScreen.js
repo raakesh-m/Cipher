@@ -31,17 +31,35 @@ export default function ChatListScreen({ navigation }) {
     loadCurrentUser();
     loadChats();
 
+    // Add navigation focus listener to refresh unread counts when returning to chat list
+    const unsubscribeFocus = navigation?.addListener ? navigation.addListener('focus', () => {
+      console.log("📱 Chat list focused - refreshing unread counts");
+      loadUnreadCounts();
+      loadChats(); // Also refresh chats to show latest messages
+    }) : null;
+
     // Subscribe to new messages for real-time updates
     const messagesSubscription = supabase
       .channel("messages")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "messages" },
-        () => {
+        (payload) => {
+          console.log("📨 Message change detected:", payload.eventType);
           loadChats();
           loadUnreadCounts();
         }
       )
+      .subscribe();
+
+    // Subscribe to unread count changes
+    const unreadCountSubscription = supabase
+      .channel("unread_count_changes")
+      .on("broadcast", { event: "unread_count_changed" }, (payload) => {
+        console.log("🔢 Unread count changed:", payload);
+        // Refresh unread counts immediately
+        loadUnreadCounts();
+      })
       .subscribe();
 
     // Subscribe to typing indicators
@@ -60,7 +78,9 @@ export default function ChatListScreen({ navigation }) {
 
     return () => {
       messagesSubscription.unsubscribe();
+      unreadCountSubscription.unsubscribe();
       typingSubscription.unsubscribe();
+      if (unsubscribeFocus) unsubscribeFocus();
     };
   }, [currentUser?.id]);
 

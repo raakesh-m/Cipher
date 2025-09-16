@@ -1,11 +1,11 @@
-import { supabase } from '../../utils/supabase';
+import { supabase } from "../../utils/supabase";
 
 export const MessageStatus = {
-  SENDING: 'sending',
-  SENT: 'sent',
-  DELIVERED: 'delivered',
-  READ: 'read',
-  FAILED: 'failed'
+  SENDING: "sending",
+  SENT: "sent",
+  DELIVERED: "delivered",
+  READ: "read",
+  FAILED: "failed",
 };
 
 class MessageStatusService {
@@ -15,9 +15,16 @@ class MessageStatusService {
   }
 
   // Send message with status tracking
-  async sendMessage(chatId, content, senderId, recipientId, messageType = 'text', tempId = null) {
+  async sendMessage(
+    chatId,
+    content,
+    senderId,
+    recipientId,
+    messageType = "text",
+    tempId = null
+  ) {
     const messageId = tempId || `temp_${Date.now()}_${Math.random()}`;
-    
+
     try {
       // Create optimistic message locally first
       const optimisticMessage = {
@@ -29,15 +36,19 @@ class MessageStatusService {
         message_type: messageType,
         status: MessageStatus.SENDING,
         created_at: new Date().toISOString(),
-        is_temp: true
+        is_temp: true,
       };
 
       // Notify callback about sending status
-      this.notifyStatusChange(messageId, MessageStatus.SENDING, optimisticMessage);
+      this.notifyStatusChange(
+        messageId,
+        MessageStatus.SENDING,
+        optimisticMessage
+      );
 
       // Insert into database
       const { data: newMessage, error } = await supabase
-        .from('messages')
+        .from("messages")
         .insert({
           chat_id: chatId,
           content_original: content,
@@ -46,9 +57,10 @@ class MessageStatusService {
           message_type: messageType,
           status: MessageStatus.SENT,
           temp_id: messageId,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         })
-        .select(`
+        .select(
+          `
           *,
           profiles!messages_sender_id_profiles_fkey (
             id,
@@ -56,22 +68,23 @@ class MessageStatusService {
             display_name,
             avatar_url
           )
-        `)
+        `
+        )
         .single();
 
       if (error) {
         // Message failed to send
-        this.notifyStatusChange(tempId, MessageStatus.FAILED, { 
-          ...optimisticMessage, 
-          error: error.message 
+        this.notifyStatusChange(tempId, MessageStatus.FAILED, {
+          ...optimisticMessage,
+          error: error.message,
         });
         throw error;
       }
 
       // Message sent successfully - update local status
-      this.notifyStatusChange(messageId, MessageStatus.SENT, { 
-        ...newMessage, 
-        temp_id: messageId 
+      this.notifyStatusChange(messageId, MessageStatus.SENT, {
+        ...newMessage,
+        temp_id: messageId,
       });
 
       // Set up delivery confirmation timeout
@@ -83,11 +96,10 @@ class MessageStatusService {
       }, 100); // Small delay to simulate network latency
 
       return newMessage;
-
     } catch (error) {
-      console.error('Error sending message:', error);
-      this.notifyStatusChange(messageId, MessageStatus.FAILED, { 
-        error: error.message 
+      console.error("Error sending message:", error);
+      this.notifyStatusChange(messageId, MessageStatus.FAILED, {
+        error: error.message,
       });
       throw error;
     }
@@ -97,13 +109,13 @@ class MessageStatusService {
   async markAsDelivered(messageId, userId) {
     try {
       const { error } = await supabase
-        .from('messages')
-        .update({ 
+        .from("messages")
+        .update({
           status: MessageStatus.DELIVERED,
-          delivered_at: new Date().toISOString()
+          delivered_at: new Date().toISOString(),
         })
-        .eq('id', messageId)
-        .neq('sender_id', userId); // Don't mark own messages as delivered
+        .eq("id", messageId)
+        .neq("sender_id", userId); // Don't mark own messages as delivered
 
       if (error) throw error;
 
@@ -114,65 +126,179 @@ class MessageStatusService {
       }
 
       console.log(`✅ Message ${messageId} marked as delivered`);
-
     } catch (error) {
-      console.error('Error marking message as delivered:', error);
+      console.error("Error marking message as delivered:", error);
     }
   }
 
   // Mark message as read
-  async markAsRead(messageId, userId) {
+  async markAsRead(messageId, userId, chatId = null, broadcastChannel = null) {
     try {
-      const { error } = await supabase
-        .from('messages')
-        .update({ 
+      const { data: updatedMessage, error } = await supabase
+        .from("messages")
+        .update({
           status: MessageStatus.READ,
-          read_at: new Date().toISOString()
+          read_at: new Date().toISOString(),
         })
-        .eq('id', messageId)
-        .neq('sender_id', userId); // Don't mark own messages as read
+        .eq("id", messageId)
+        .neq("sender_id", userId) // Don't mark own messages as read
+        .select("*")
+        .single();
 
       if (error) throw error;
 
       console.log(`✅ Message ${messageId} marked as read`);
+      console.log(
+        `📡 Broadcasting read status - Channel available: ${!!broadcastChannel}, Message chat: ${
+          updatedMessage?.chat_id
+        }`
+      );
 
+      // Broadcast instant read status update
+      if (updatedMessage && updatedMessage.chat_id && broadcastChannel) {
+        try {
+          await broadcastChannel.send({
+            type: "broadcast",
+            event: "instant_read_status",
+            payload: {
+              message_id: messageId,
+              status: MessageStatus.READ,
+              read_at: updatedMessage.read_at,
+              chat_id: updatedMessage.chat_id,
+              reader_id: userId,
+            },
+          });
+          console.log(`📡 Broadcasted read status for message ${messageId}`);
+        } catch (broadcastError) {
+          console.error("Error broadcasting read status:", broadcastError);
+        }
+      } else if (updatedMessage && updatedMessage.chat_id) {
+        console.warn(
+          `⚠️ No broadcast channel available for message ${messageId} read status`
+        );
+      }
     } catch (error) {
-      console.error('Error marking message as read:', error);
+      console.error("Error marking message as read:", error);
     }
   }
 
   // Mark all messages in chat as read
-  async markChatAsRead(chatId, userId) {
+  async markChatAsRead(chatId, userId, broadcastChannel = null) {
     try {
-      // Try using the new database function first
-      const { data, error } = await supabase.rpc('mark_chat_messages_read', {
+      console.log(
+        `🔍 markChatAsRead called for chat ${chatId} by user ${userId}, broadcastChannel: ${!!broadcastChannel}`
+      );
+
+      // Get the messages that will be marked as read first for broadcasting
+      const { data: messagesToRead, error: selectError } = await supabase
+        .from("messages")
+        .select("id, sender_id, temp_id")
+        .eq("chat_id", chatId)
+        .neq("sender_id", userId)
+        .neq("status", "read"); // Check status instead of read_at
+
+      if (selectError) throw selectError;
+
+      console.log(
+        `📋 Found ${
+          messagesToRead?.length || 0
+        } unread messages to mark as read:`,
+        messagesToRead?.map((m) => ({ id: m.id, sender: m.sender_id }))
+      );
+
+      // Send individual read receipts BEFORE marking as read
+      if (messagesToRead?.length > 0 && broadcastChannel) {
+        const readTime = new Date().toISOString();
+
+        try {
+          // Send individual read receipts for each message (more reliable than bulk)
+          for (const message of messagesToRead) {
+            await broadcastChannel.send({
+              type: "broadcast",
+              event: "instant_read_receipt",
+              payload: {
+                temp_id: message.id, // Use the actual message ID
+                read_at: readTime,
+                read_by: userId,
+              },
+            });
+            console.log(
+              `📡 Sent read receipt for message ${message.id} to sender ${message.sender_id}`
+            );
+          }
+          console.log(
+            `📡 Broadcasted individual read receipts for ${messagesToRead.length} messages`
+          );
+        } catch (broadcastError) {
+          console.error(
+            "Error broadcasting individual read receipts:",
+            broadcastError
+          );
+        }
+      }
+
+      // Now mark messages as read in database
+      const { data, error } = await supabase.rpc("mark_chat_messages_read", {
         p_chat_id: chatId,
-        p_user_id: userId
+        p_user_id: userId,
       });
 
       if (error) throw error;
 
-      console.log(`✅ ${data || 0} messages in chat ${chatId} marked as read`);
+      const updatedCount = data || 0;
+      console.log(
+        `✅ ${updatedCount} messages in chat ${chatId} marked as read`
+      );
 
+      if (messagesToRead?.length > 0 && !broadcastChannel) {
+        console.warn(
+          `⚠️ No broadcast channel available for read receipts (${messagesToRead.length} messages)`
+        );
+      }
+
+      // Also broadcast unread count change for chat list updates
+      await supabase.channel("unread_count_changes").send({
+        type: "broadcast",
+        event: "unread_count_changed",
+        payload: {
+          chat_id: chatId,
+          user_id: userId,
+          action: "marked_read",
+          count: updatedCount,
+        },
+      });
     } catch (error) {
-      console.error('Error marking chat as read:', error);
+      console.error("Error marking chat as read:", error);
 
       // Fallback to the old method
       try {
         const { error: fallbackError } = await supabase
-          .from('messages')
+          .from("messages")
           .update({
             status: MessageStatus.READ,
-            read_at: new Date().toISOString()
+            read_at: new Date().toISOString(),
           })
-          .eq('chat_id', chatId)
-          .neq('sender_id', userId)
-          .neq('status', MessageStatus.READ);
+          .eq("chat_id", chatId)
+          .neq("sender_id", userId)
+          .neq("status", MessageStatus.READ);
 
         if (fallbackError) throw fallbackError;
-        console.log(`✅ Fallback: All messages in chat ${chatId} marked as read`);
+        console.log(
+          `✅ Fallback: All messages in chat ${chatId} marked as read`
+        );
+
+        // Also broadcast for fallback
+        await supabase.channel("unread_count_changes").send({
+          type: "broadcast",
+          event: "unread_count_changed",
+          payload: {
+            chat_id: chatId,
+            user_id: userId,
+            action: "marked_read_fallback",
+          },
+        });
       } catch (fallbackErr) {
-        console.error('Fallback mark as read failed:', fallbackErr);
+        console.error("Fallback mark as read failed:", fallbackErr);
       }
     }
   }
@@ -181,17 +307,19 @@ class MessageStatusService {
   setupDeliveryTimeout(messageId) {
     const timeout = setTimeout(async () => {
       console.log(`⚠️ Message ${messageId} delivery timeout - checking status`);
-      
+
       // Check if message is still in 'sent' status after timeout
       const { data: message } = await supabase
-        .from('messages')
-        .select('status')
-        .eq('id', messageId)
+        .from("messages")
+        .select("status")
+        .eq("id", messageId)
         .single();
 
       if (message && message.status === MessageStatus.SENT) {
         // Still not delivered - could indicate recipient is offline
-        console.log(`📤 Message ${messageId} not delivered yet (recipient offline?)`);
+        console.log(
+          `📤 Message ${messageId} not delivered yet (recipient offline?)`
+        );
       }
     }, 30000); // 30 second timeout
 
@@ -221,11 +349,11 @@ class MessageStatusService {
   notifyStatusChange(messageId, status, messageData = {}) {
     const callbacks = this.statusCallbacks.get(messageId);
     if (callbacks) {
-      callbacks.forEach(callback => {
+      callbacks.forEach((callback) => {
         try {
           callback(status, { ...messageData, id: messageId });
         } catch (error) {
-          console.error('Error in status callback:', error);
+          console.error("Error in status callback:", error);
         }
       });
     }
@@ -235,17 +363,17 @@ class MessageStatusService {
   getStatusIcon(status) {
     switch (status) {
       case MessageStatus.SENDING:
-        return '⏳'; // Clock icon
+        return "⏳"; // Clock icon
       case MessageStatus.SENT:
-        return '✓'; // Single checkmark
+        return "✓"; // Single checkmark
       case MessageStatus.DELIVERED:
-        return '✓✓'; // Double checkmark (gray)
+        return "✓✓"; // Double checkmark (gray)
       case MessageStatus.READ:
-        return '✓✓'; // Double checkmark (blue/colored)
+        return "✓✓"; // Double checkmark (blue/colored)
       case MessageStatus.FAILED:
-        return '❌'; // Error icon
+        return "❌"; // Error icon
       default:
-        return '';
+        return "";
     }
   }
 

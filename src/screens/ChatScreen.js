@@ -11,6 +11,7 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  AppState,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -67,6 +68,50 @@ export default function ChatScreen({ route, navigation }) {
 
     initializeChat();
 
+    // Add navigation focus listener to mark messages as read when returning to chat
+    const unsubscribeFocus = navigation.addListener('focus', () => {
+      console.log("📱 Chat screen focused - marking messages as read");
+      if (currentUser?.id) {
+        // Wait for chat channel to be available before marking as read
+        const waitForChannel = (attempts = 0) => {
+          console.log(`🔍 Waiting for channel, attempt ${attempts + 1}, channel exists: ${!!window.chatChannel}`);
+          if (window.chatChannel) {
+            console.log(`✅ Channel found, marking messages as read`);
+            markAllMessagesAsRead(currentUser.id);
+          } else if (attempts < 50) { // Max 5 seconds
+            setTimeout(() => waitForChannel(attempts + 1), 100);
+          } else {
+            console.warn(`⚠️ Channel not available after 5 seconds, marking without channel`);
+            markAllMessagesAsRead(currentUser.id);
+          }
+        };
+        setTimeout(waitForChannel, 500);
+      }
+    });
+
+    // Add AppState listener to mark messages as read when app becomes active
+    const handleAppStateChange = (nextAppState) => {
+      if (nextAppState === 'active' && currentUser?.id) {
+        console.log("📱 App became active - marking messages as read");
+        // Wait for chat channel to be available before marking as read
+        const waitForChannel = (attempts = 0) => {
+          console.log(`🔍 App active - waiting for channel, attempt ${attempts + 1}, channel exists: ${!!window.chatChannel}`);
+          if (window.chatChannel) {
+            console.log(`✅ App active - channel found, marking messages as read`);
+            markAllMessagesAsRead(currentUser.id);
+          } else if (attempts < 50) { // Max 5 seconds
+            setTimeout(() => waitForChannel(attempts + 1), 100);
+          } else {
+            console.warn(`⚠️ App active - channel not available after 5 seconds, marking without channel`);
+            markAllMessagesAsRead(currentUser.id);
+          }
+        };
+        setTimeout(waitForChannel, 1000);
+      }
+    };
+
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+
     return () => {
       // Cleanup all services
       if (window.chatChannel) {
@@ -76,6 +121,10 @@ export default function ChatScreen({ route, navigation }) {
       supabase.auth.stopAutoRefresh();
       typingService.unsubscribeFromTyping(chatId, handleTypingUsersChange);
       messageStatusService.cleanup();
+      unsubscribeFocus();
+      if (appStateSubscription?.remove) {
+        appStateSubscription.remove();
+      }
       // Note: Don't cleanup onlineStatusService here as it's used app-wide
     };
   }, [chatId]);
@@ -115,16 +164,39 @@ export default function ChatScreen({ route, navigation }) {
         },
         handleNewMessage
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "messages",
+          filter: `chat_id=eq.${chatId}`,
+        },
+        handleMessageUpdate
+      )
       .on("broadcast", { event: "instant_message" }, handleInstantMessage)
       .on(
         "broadcast",
         { event: "instant_message_update" },
         handleInstantMessageUpdate
       )
+      .on("broadcast", { event: "instant_read_status" }, handleInstantReadStatus)
+      .on("broadcast", { event: "instant_bulk_read_status" }, handleInstantBulkReadStatus)
+      .on("broadcast", { event: "instant_delivery_receipt" }, handleInstantDeliveryReceipt)
+      .on("broadcast", { event: "instant_read_receipt" }, handleInstantReadReceipt)
       .subscribe((status) => {
         console.log("📡 Subscription status:", status);
         if (status === "SUBSCRIBED") {
           console.log("✅ Successfully connected to realtime");
+          console.log("📺 Channel info:", {
+            chatId,
+            userId: user?.id,
+            channelExists: !!window.chatChannel
+          });
+          // Mark all messages as read when we successfully connect
+          if (user?.id) {
+            markAllMessagesAsRead(user.id);
+          }
         } else if (status === "CHANNEL_ERROR") {
           console.error("❌ Channel subscription failed");
         }
@@ -132,6 +204,12 @@ export default function ChatScreen({ route, navigation }) {
 
     // Store channel reference for cleanup
     window.chatChannel = channel;
+
+    // Mark chat as read now that channel is available
+    if (user?.id) {
+      await messageStatusService.markChatAsRead(chatId, user.id, window.chatChannel);
+      console.log(`✅ Marked chat as read after channel initialization`);
+    }
   };
 
   const handleTypingUsersChange = (typingUserIds) => {
@@ -145,6 +223,201 @@ export default function ChatScreen({ route, navigation }) {
     }
 
     previousTypingUsersLength.current = typingUserIds.length;
+  };
+
+  // Handle message updates (like read status changes)
+  const handleMessageUpdate = async (payload) => {
+    const updatedMessage = payload.new || payload;
+    console.log("📝 Message updated:", {
+      id: updatedMessage.id,
+      status: updatedMessage.status,
+      read_at: updatedMessage.read_at,
+      sender_id: updatedMessage.sender_id,
+      fullPayload: updatedMessage
+    });
+
+    // Get current user reliably
+    const user = currentUser || (await getCurrentUserSync());
+
+    console.log(`🔍 Checking read receipt conditions:`, {
+      messageStatus: updatedMessage.status,
+      isRead: updatedMessage.status === 'read',
+      messageSender: updatedMessage.sender_id,
+      currentUser: user?.id,
+      isNotSender: updatedMessage.sender_id !== user?.id,
+      hasChannel: !!window.chatChannel
+    });
+
+    // If this message was marked as read and we're not the sender, send a read receipt
+    if (updatedMessage.status === 'read' &&
+        updatedMessage.sender_id !== user?.id &&
+        window.chatChannel) {
+
+      console.log(`📡 Sending read receipt for message ${updatedMessage.id} to sender ${updatedMessage.sender_id}`);
+
+      try {
+        await window.chatChannel.send({
+          type: 'broadcast',
+          event: 'instant_read_receipt',
+          payload: {
+            temp_id: updatedMessage.id,
+            read_at: updatedMessage.read_at,
+            read_by: user?.id
+          }
+        });
+        console.log(`✅ Read receipt sent for message ${updatedMessage.id}`);
+      } catch (error) {
+        console.error('Error sending read receipt:', error);
+      }
+    } else {
+      console.log(`⚠️ Skipping read receipt - conditions not met`);
+    }
+
+    setMessages((prev) =>
+      prev.map(msg =>
+        msg.id === updatedMessage.id
+          ? { ...msg, ...updatedMessage }
+          : msg
+      )
+    );
+  };
+
+  // Handle instant read status updates (single message)
+  const handleInstantReadStatus = (payload) => {
+    console.log("👁️ Instant read status update received:", {
+      event: payload.event,
+      payload: payload.payload,
+      currentUserId: currentUser?.id
+    });
+    const { message_id, status, read_at, reader_id } = payload.payload;
+
+    // Don't update if it's our own read action (we already see it)
+    if (reader_id === currentUser?.id) {
+      console.log("⚠️ Skipping own read status update");
+      return;
+    }
+
+    console.log(`📖 Updating message ${message_id} status to ${status} (read by ${reader_id})`);
+
+    setMessages((prev) => {
+      const updated = prev.map(msg =>
+        msg.id === message_id
+          ? { ...msg, status, read_at }
+          : msg
+      );
+      console.log(`📱 Updated ${updated.filter(m => m.id === message_id).length} messages with new status`);
+      return updated;
+    });
+  };
+
+  // Handle instant bulk read status updates (multiple messages)
+  const handleInstantBulkReadStatus = async (payload) => {
+    // Get current user reliably
+    const user = currentUser || (await getCurrentUserSync());
+
+    console.log("👁️ Instant bulk read status update received:", {
+      event: payload.event,
+      payload: payload.payload,
+      currentUserId: user?.id
+    });
+    const { message_ids, status, read_at, reader_id, count } = payload.payload;
+
+    // Don't update if it's our own read action
+    if (reader_id === user?.id) {
+      console.log("⚠️ Skipping own bulk read status update");
+      return;
+    }
+
+    console.log(`📖 Updating ${count} messages to ${status} (read by ${reader_id})`);
+
+    setMessages((prev) => {
+      const updated = prev.map(msg =>
+        message_ids.includes(msg.id)
+          ? { ...msg, status, read_at }
+          : msg
+      );
+      const updatedCount = updated.filter(m => message_ids.includes(m.id)).length;
+      console.log(`📱 Updated ${updatedCount} messages with new status`);
+      return updated;
+    });
+  };
+
+  // Handle instant delivery receipts (Apple Messages style)
+  const handleInstantDeliveryReceipt = (payload) => {
+    console.log("📦 Instant delivery receipt received:", {
+      event: payload.event,
+      payload: payload.payload,
+      currentUserId: currentUser?.id
+    });
+    const { temp_id, delivered_at, delivered_to } = payload.payload;
+
+    console.log(`📦 Message ${temp_id} delivered to ${delivered_to}`);
+
+    setMessages((prev) => {
+      const updated = prev.map(msg => {
+        // Update any message with this temp_id that we sent
+        if (msg.temp_id === temp_id && msg.sender_id === currentUser?.id) {
+          console.log(`✅ Updating message ${temp_id} to DELIVERED status`);
+          return {
+            ...msg,
+            status: MessageStatus.DELIVERED, // Update to DELIVERED status
+            delivered_at
+          };
+        }
+        return msg;
+      });
+
+      const updatedMessages = updated.filter(m =>
+        m.temp_id === temp_id && m.sender_id === currentUser?.id
+      );
+      console.log(`📱 Updated ${updatedMessages.length} messages to delivered status`);
+
+      if (updatedMessages.length === 0) {
+        console.warn(`⚠️ No messages found with temp_id ${temp_id} for current user ${currentUser?.id}`);
+      }
+
+      return updated;
+    });
+  };
+
+  // Handle instant read receipts (when recipient reads message in active chat)
+  const handleInstantReadReceipt = async (payload) => {
+    // Get current user reliably
+    const user = currentUser || (await getCurrentUserSync());
+
+    const { temp_id, read_at, read_by } = payload.payload;
+
+    setMessages((prev) => {
+
+      const updated = prev.map(msg => {
+        // Update any message with this temp_id or id that we sent
+        const matchesTempId = msg.temp_id === temp_id;
+        const matchesId = msg.id === temp_id;
+        const isSentByCurrentUser = msg.sender_id === user?.id;
+
+        if ((matchesTempId || matchesId) && isSentByCurrentUser) {
+          return {
+            ...msg,
+            status: MessageStatus.READ,
+            read_at
+          };
+        }
+        return msg;
+      });
+
+
+      return updated;
+    });
+  };
+
+  // Mark all messages as read when entering chat
+  const markAllMessagesAsRead = async (userId) => {
+    try {
+      await messageStatusService.markChatAsRead(chatId, userId, window.chatChannel);
+      console.log(`✅ Marked all messages in chat ${chatId} as read`);
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
   };
 
   // Helper to get current user synchronously
@@ -198,8 +471,7 @@ export default function ChatScreen({ route, navigation }) {
       // Subscribe to typing indicators after currentUser is set
       typingService.subscribeToTyping(chatId, user.id, handleTypingUsersChange);
 
-      // Mark chat as read when entering
-      await messageStatusService.markChatAsRead(chatId, user.id);
+      // Note: markChatAsRead will be called after channel is created in initializeChat
     }
   };
 
@@ -333,15 +605,55 @@ export default function ChatScreen({ route, navigation }) {
       console.log("⚡ Adding instant message:", messageData.temp_id);
 
       // Add with instant delivery status
+      // Since recipient is actively viewing the chat, mark as READ immediately
       const instantMessage = {
         ...messageData,
-        status: "delivered",
+        status: "read", // This message is READ since recipient is actively in chat
         is_instant: true,
+        read_at: new Date().toISOString(),
         // content_original and content_translated are already correctly set from sender
       };
 
       return [...prev, instantMessage];
     });
+
+    // 📡 BROADCAST READ RECEIPT BACK TO SENDER
+    // Since recipient is actively in chat, send read receipt instead of delivery receipt
+    if (messageData.temp_id && window.chatChannel) {
+      setTimeout(async () => {
+        // Try to get currentUser if not already loaded
+        let userId = currentUser?.id;
+        if (!userId) {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            userId = user?.id;
+          } catch (error) {
+            console.error('Error getting user for read receipt:', error);
+          }
+        }
+
+        if (userId) {
+          try {
+            await window.chatChannel.send({
+              type: 'broadcast',
+              event: 'instant_read_receipt',
+              payload: {
+                temp_id: messageData.temp_id,
+                read_at: new Date().toISOString(),
+                read_by: userId
+              }
+            });
+            console.log(`👁️ Sent read receipt for message ${messageData.temp_id} by user ${userId}`);
+          } catch (error) {
+            console.error('Error sending read receipt:', error);
+          }
+        } else {
+          console.warn(`⚠️ Cannot send read receipt - no user ID available`);
+        }
+      }, 200); // Slightly longer delay to ensure user is loaded
+    }
+
+    // Note: Read marking is handled in handleNewMessage when database ID arrives
 
     // Scroll to bottom
     setTimeout(() => {
@@ -351,36 +663,20 @@ export default function ChatScreen({ route, navigation }) {
 
   // Handle database messages (slower backup for reliability)
   const handleNewMessage = async (payload) => {
+    // Get current user reliably
+    const user = currentUser || (await getCurrentUserSync());
+
     const newMessage = payload.new || payload;
-    console.log("🆕 Processing database message:", {
-      id: newMessage.id,
-      sender_id: newMessage.sender_id,
-      content: newMessage.content_original?.substring(0, 50) + "...",
-      was_translated: newMessage.was_translated,
-    });
 
     // For sender: check if we already have this message (by temp_id or id)
-    if (newMessage.sender_id === currentUser?.id) {
+    if (newMessage.sender_id === user?.id) {
       setMessages((prev) => {
-        console.log("🗄️ Processing database message for sender:", {
-          newMessageId: newMessage.id,
-          newMessageTempId: newMessage.temp_id,
-          totalExistingMessages: prev.length,
-          existingTempIds: prev.map((m) => m.temp_id).filter(Boolean),
-          existingIds: prev.map((m) => m.id).filter(Boolean),
-          messageContent: newMessage.content_original?.substring(0, 20) + "...",
-        });
 
         // First check for duplicate by database ID
         const duplicateByIdIndex = prev.findIndex(
           (msg) => msg.id === newMessage.id
         );
         if (duplicateByIdIndex !== -1) {
-          console.log(
-            "⚠️ Sender already has message with database ID:",
-            newMessage.id,
-            "- skipping"
-          );
           return prev;
         }
 
@@ -391,31 +687,18 @@ export default function ChatScreen({ route, navigation }) {
 
         if (existingMessageIndex !== -1) {
           // Update existing optimistic message with database info
-          console.log(
-            "🔄 Updating sender's optimistic message with database info:",
-            {
-              index: existingMessageIndex,
-              oldId: prev[existingMessageIndex].id,
-              newId: newMessage.id,
-              tempId: newMessage.temp_id,
-            }
-          );
           const updated = [...prev];
           updated[existingMessageIndex] = {
             ...updated[existingMessageIndex],
             ...newMessage,
             id: newMessage.id,
             status: newMessage.status || "delivered",
-            // Remove temp_id once we have database ID to avoid key conflicts
-            temp_id: undefined,
+            // Keep temp_id for read receipt matching
+            temp_id: newMessage.temp_id,
           };
           return updated;
         }
 
-        console.log(
-          "⚠️ No matching optimistic message found, ignoring database message for sender:",
-          newMessage.id
-        );
         // Don't add new database messages for sender - they should only have optimistic -> updated flow
         return prev;
       });
@@ -431,10 +714,6 @@ export default function ChatScreen({ route, navigation }) {
 
       if (instantMessageIndex !== -1) {
         // Update instant message with database info
-        console.log(
-          "🔄 Updating instant message with database info:",
-          newMessage.id
-        );
         const updated = [...prev];
         updated[instantMessageIndex] = {
           ...updated[instantMessageIndex],
@@ -445,6 +724,14 @@ export default function ChatScreen({ route, navigation }) {
           // Remove temp_id once we have database ID to avoid key conflicts
           temp_id: undefined,
         };
+
+        // Mark as read immediately since recipient is in chat and now we have database ID
+        if (newMessage.sender_id !== user?.id && user?.id) {
+          setTimeout(() => {
+            messageStatusService.markAsRead(newMessage.id, user.id, chatId, window.chatChannel);
+          }, 200);
+        }
+
         return updated;
       }
 
@@ -455,15 +742,10 @@ export default function ChatScreen({ route, navigation }) {
           (msg.temp_id && msg.temp_id === newMessage.temp_id)
       );
       if (messageExists) {
-        console.log(
-          "⚠️ Duplicate database message detected, skipping:",
-          newMessage.id || newMessage.temp_id
-        );
         return prev;
       }
 
       // Add as new message if no instant version exists
-      console.log("🆕 Adding new database message:", newMessage.id);
 
       const messageWithDefaults = {
         ...newMessage,
@@ -472,6 +754,13 @@ export default function ChatScreen({ route, navigation }) {
 
       return [...prev, messageWithDefaults];
     });
+
+    // Mark incoming message as read if it's from another user and user is in chat
+    if (newMessage.sender_id !== currentUser?.id && currentUser?.id) {
+      setTimeout(() => {
+        messageStatusService.markAsRead(newMessage.id, currentUser.id, chatId, window.chatChannel);
+      }, 1000); // Delay to ensure message is fully processed
+    }
 
     // Scroll to bottom only if this is a truly new message
     setTimeout(() => {
@@ -520,12 +809,6 @@ export default function ChatScreen({ route, navigation }) {
     };
 
     setMessages((prev) => {
-      console.log("📱 Adding optimistic message:", {
-        tempId,
-        totalMessages: prev.length,
-        existingTempIds: prev.map((m) => m.temp_id).filter(Boolean),
-        existingIds: prev.map((m) => m.id).filter(Boolean),
-      });
 
       // Double-check for duplicates before adding
       const duplicateIndex = prev.findIndex(
@@ -569,7 +852,7 @@ export default function ChatScreen({ route, navigation }) {
         )
       );
 
-      // 🔄 STEP 3: Handle translation in background (non-blocking)
+      // Handle translation in background
       let translationResult = {
         needsTranslation: false,
         originalText: messageText,
@@ -587,7 +870,6 @@ export default function ChatScreen({ route, navigation }) {
 
       // Check if current user can translate (has API key)
       if (currentUser?.gemini_api_key_encrypted && recipientProfile) {
-        console.log("🎯 Sender has API key - checking if translation needed");
         try {
           translationResult = await translateMessageForRecipient(
             messageText,
@@ -599,7 +881,6 @@ export default function ChatScreen({ route, navigation }) {
 
           // Update optimistic message with translation result
           if (translationResult.needsTranslation) {
-            console.log("🔄 Translation completed - updating message");
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.temp_id === tempId
@@ -627,7 +908,6 @@ export default function ChatScreen({ route, navigation }) {
                 event: "instant_message_update",
                 payload: updatedBroadcastPayload,
               });
-              console.log("✅ Translation broadcast sent successfully");
             }
           }
         } catch (translationError) {
@@ -651,13 +931,8 @@ export default function ChatScreen({ route, navigation }) {
         ? translationResult.translatedText
         : messageText;
 
-      console.log("📤 Final message result:", {
-        original: messageText,
-        forRecipient: contentForRecipient,
-        translated: translationResult.needsTranslation,
-      });
 
-      // 💾 STEP 4: Save to database in background
+      // Save to database
       const databaseMessage = {
         chat_id: chatId,
         content_original: messageText,
@@ -693,13 +968,8 @@ export default function ChatScreen({ route, navigation }) {
 
       if (error) throw error;
 
-      console.log(
-        "✅ Message saved to database:",
-        newMessage.id,
-        "- will update optimistic message via real-time"
-      );
 
-      // 🔔 Send push notification (use translated content if available)
+      // Send push notification
       const { data: recipientProfileForNotification } = await supabase
         .from("profiles")
         .select("expo_push_token, display_name, username")
@@ -1031,7 +1301,7 @@ export default function ChatScreen({ route, navigation }) {
               onFocus={() => {
                 // Mark messages as read when user focuses input
                 if (currentUser?.id) {
-                  messageStatusService.markChatAsRead(chatId, currentUser.id);
+                  messageStatusService.markChatAsRead(chatId, currentUser.id, window.chatChannel);
                 }
                 // Scroll to bottom when keyboard opens
                 setTimeout(() => {
