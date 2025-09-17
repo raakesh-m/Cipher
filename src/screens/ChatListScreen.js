@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../../utils/supabase";
 import { useTheme } from "../contexts/ThemeContext";
 import onlineStatusService from "../services/onlineStatusService";
+import DropdownMenu from "../components/DropdownMenu";
 
 export default function ChatListScreen({ navigation }) {
   const { theme } = useTheme();
@@ -26,6 +27,9 @@ export default function ChatListScreen({ navigation }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [typingUsers, setTypingUsers] = useState({});
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ x: 0, y: 0 });
+  const dropdownButtonRef = useRef(null);
 
   useEffect(() => {
     loadCurrentUser();
@@ -226,6 +230,38 @@ export default function ChatListScreen({ navigation }) {
     await AsyncStorage.setItem("keepSignedIn", "false");
     await supabase.auth.signOut();
   };
+
+  const handleDropdownPress = () => {
+    if (dropdownButtonRef.current) {
+      dropdownButtonRef.current.measure((x, y, width, height, pageX, pageY) => {
+        setDropdownPosition({ x: pageX, y: pageY });
+        setShowDropdown(true);
+      });
+    }
+  };
+
+  const menuItems = [
+    {
+      title: "Profile",
+      icon: "person-outline",
+      onPress: () => navigation.navigate("Profile"),
+    },
+    {
+      title: "Settings",
+      icon: "settings-outline",
+      onPress: () => navigation.navigate("Settings"),
+    },
+    {
+      title: "New Chat",
+      icon: "add-circle-outline",
+      onPress: () => navigation.navigate("UserSearch"),
+    },
+    {
+      title: "Sign Out",
+      icon: "log-out-outline",
+      onPress: handleSignOut,
+    },
+  ];
 
   const formatMessagePreview = (message) => {
     if (!message) return "No messages yet";
@@ -437,8 +473,9 @@ export default function ChatListScreen({ navigation }) {
                 <Ionicons name="search" size={24} color={theme.colors.textPrimary} />
               </TouchableOpacity>
               <TouchableOpacity
+                ref={dropdownButtonRef}
                 style={styles.headerActionButton}
-                onPress={() => navigation.navigate("Profile")}
+                onPress={handleDropdownPress}
               >
                 <Ionicons name="ellipsis-vertical" size={24} color={theme.colors.textPrimary} />
               </TouchableOpacity>
@@ -545,6 +582,14 @@ export default function ChatListScreen({ navigation }) {
         >
           <Ionicons name="refresh" size={24} color={theme.colors.badgeText} />
         </TouchableOpacity>
+
+        {/* Dropdown Menu */}
+        <DropdownMenu
+          isVisible={showDropdown}
+          onClose={() => setShowDropdown(false)}
+          anchorPosition={dropdownPosition}
+          menuItems={menuItems}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

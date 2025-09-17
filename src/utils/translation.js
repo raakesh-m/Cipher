@@ -1,7 +1,32 @@
 import * as Crypto from "expo-crypto";
+import { supabase } from "../../utils/supabase";
 
 // Simple encryption/decryption for API keys (in production, use a more robust solution)
 const ENCRYPTION_KEY = "cipher_app_key_2024"; // In production, use a proper key management system
+
+// Check if translation is enabled for the current user
+export const isTranslationEnabled = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return false;
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("translation_enabled")
+      .eq("id", user.id)
+      .single();
+
+    if (error) {
+      console.error("Error checking translation status:", error);
+      return true; // Default to enabled if we can't check
+    }
+
+    return data?.translation_enabled !== false; // Default to true if not set
+  } catch (error) {
+    console.error("Error checking translation status:", error);
+    return true; // Default to enabled on error
+  }
+};
 
 export const encryptApiKey = async (apiKey) => {
   // Simple base64 encoding (not cryptographically secure, but better than plaintext)
@@ -29,6 +54,13 @@ export const shouldTranslateMessage = async (
   preferredLanguage,
   encryptedApiKey
 ) => {
+  // Check if translation is enabled for the user
+  const translationEnabled = await isTranslationEnabled();
+
+  if (!translationEnabled) {
+    return null; // Don't translate if disabled
+  }
+
   if (!knownLanguages || knownLanguages.length === 0) {
     return preferredLanguage || "English"; // Default fallback
   }
@@ -169,13 +201,16 @@ export const translateMessageForRecipient = async (
   recipientPreferredLanguage,
   senderApiKey
 ) => {
-  if (!senderApiKey || !recipientKnownLanguages || !recipientPreferredLanguage) {
+  // Check if translation is enabled for the sender
+  const translationEnabled = await isTranslationEnabled();
+
+  if (!translationEnabled || !senderApiKey || !recipientKnownLanguages || !recipientPreferredLanguage) {
     return {
       needsTranslation: false,
       originalText: messageText,
       translatedText: null,
       detectedLanguage: null,
-      error: null
+      error: translationEnabled ? null : "Translation is disabled"
     };
   }
 
