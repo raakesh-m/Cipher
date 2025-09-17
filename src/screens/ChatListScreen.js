@@ -252,11 +252,6 @@ export default function ChatListScreen({ navigation }) {
       onPress: () => navigation.navigate("Settings"),
     },
     {
-      title: "New Chat",
-      icon: "add-circle-outline",
-      onPress: () => navigation.navigate("UserSearch"),
-    },
-    {
       title: "Sign Out",
       icon: "log-out-outline",
       onPress: handleSignOut,
