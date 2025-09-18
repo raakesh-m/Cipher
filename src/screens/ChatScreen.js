@@ -12,6 +12,7 @@ import {
   Alert,
   ActivityIndicator,
   AppState,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -1385,10 +1386,37 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  headerAvatarContainer: {
+    marginLeft: 8,
+    marginRight: 12,
+  },
+  headerAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  headerAvatarImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  headerAvatarText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "600",
+  },
   headerUserInfo: {
     flex: 1,
     alignItems: "center",
-    marginHorizontal: 20,
+    marginHorizontal: 16,
   },
   headerName: {
     fontSize: 18,
