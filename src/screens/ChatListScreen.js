@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -80,10 +81,25 @@ export default function ChatListScreen({ navigation }) {
       })
       .subscribe();
 
+    // Subscribe to profile changes to update avatar URLs in real-time
+    const profileSubscription = supabase
+      .channel("profiles")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "profiles" },
+        (payload) => {
+          console.log("👤 Profile updated:", payload.new);
+          // Reload chats to get updated profile info
+          loadChats();
+        }
+      )
+      .subscribe();
+
     return () => {
       messagesSubscription.unsubscribe();
       unreadCountSubscription.unsubscribe();
       typingSubscription.unsubscribe();
+      profileSubscription.unsubscribe();
       if (unsubscribeFocus) unsubscribeFocus();
     };
   }, [currentUser?.id]);
@@ -340,9 +356,16 @@ export default function ChatListScreen({ navigation }) {
           styles.avatar,
           { backgroundColor: theme.colors.primary }
         ]}>
-          <Text style={styles.avatarText}>
-            {getInitials(item.otherUser?.display_name || item.otherUser?.username)}
-          </Text>
+          {item.otherUser?.avatar_url ? (
+            <Image
+              source={{ uri: item.otherUser.avatar_url }}
+              style={styles.avatarImage}
+            />
+          ) : (
+            <Text style={styles.avatarText}>
+              {getInitials(item.otherUser?.display_name || item.otherUser?.username)}
+            </Text>
+          )}
         </View>
 
         <View style={styles.chatInfo}>
@@ -734,6 +757,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   },
   avatarText: {
     color: "#fff",

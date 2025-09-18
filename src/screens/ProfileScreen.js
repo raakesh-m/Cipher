@@ -20,6 +20,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from 'expo-image-manipulator';
+import Cropper from 'react-easy-crop';
 import { useTheme } from "../contexts/ThemeContext";
 import { supabase } from "../../utils/supabase";
 import { uploadToR2, getR2Url } from "../utils/r2Storage";
@@ -42,6 +44,11 @@ const ProfileScreen = ({ navigation }) => {
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [showPreferredLanguagePicker, setShowPreferredLanguagePicker] = useState(false);
   const [languageSearch, setLanguageSearch] = useState("");
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
   
   // Animation references
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -113,24 +120,44 @@ const ProfileScreen = ({ navigation }) => {
   };
 
   const pickImage = async () => {
+    console.log('pickImage function called');
     try {
       // Request permissions
+      console.log('Requesting permissions...');
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('Permission status:', status);
       if (status !== 'granted') {
         Alert.alert('Permission required', 'Please grant camera roll permissions to change your profile picture.');
         return;
       }
 
-      // Launch image picker
+      // Launch image picker without editing to get original image
+      console.log('Launching image picker...');
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+        allowsEditing: false, // We'll handle cropping ourselves
+        quality: 1.0, // High quality for cropping
+        selectionLimit: 1,
+        allowsMultipleSelection: false,
       });
 
       if (!result.canceled && result.assets[0]) {
-        await uploadProfilePicture(result.assets[0]);
+        const asset = result.assets[0];
+
+        // Check file size (limit to 5MB)
+        const maxSizeInBytes = 5 * 1024 * 1024; // 5MB
+        if (asset.fileSize && asset.fileSize > maxSizeInBytes) {
+          Alert.alert(
+            'File Too Large',
+            'Please select an image smaller than 5MB. You can try reducing the image quality or choosing a different image.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        // Show crop modal
+        setSelectedImage(asset);
+        setShowCropModal(true);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -138,42 +165,45 @@ const ProfileScreen = ({ navigation }) => {
     }
   };
 
-  const takePhoto = async () => {
-    try {
-      // Request camera permissions
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission required', 'Please grant camera permissions to take a photo.');
-        return;
-      }
-
-      // Launch camera
-      const result = await ImagePicker.launchCameraAsync({
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
-
-      if (!result.canceled && result.assets[0]) {
-        await uploadProfilePicture(result.assets[0]);
-      }
-    } catch (error) {
-      console.error('Error taking photo:', error);
-      Alert.alert('Error', 'Failed to take photo. Please try again.');
-    }
-  };
 
   const uploadProfilePicture = async (asset) => {
+    console.log('uploadProfilePicture called with asset:', asset);
     setUploadingAvatar(true);
     animateButton(avatarScale);
-    
+
     try {
-      const fileName = `avatars/${profile.id}_${Date.now()}.jpg`;
-      
-      // Upload to R2 storage
-      const uploadedFileName = await uploadToR2(asset.uri, fileName);
-      const newAvatarUrl = getR2Url(uploadedFileName);
-      
+      const fileName = `${profile.id}_${Date.now()}.jpg`;
+      console.log('Uploading with filename:', fileName);
+
+      // Convert asset URI to blob for upload
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // Upload to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, uint8Array, {
+          contentType: asset.mimeType || 'image/jpeg',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Supabase upload error:', uploadError);
+        throw uploadError;
+      }
+
+      console.log('Upload completed, upload data:', uploadData);
+
+      // Get public URL from Supabase Storage
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName);
+
+      const newAvatarUrl = urlData.publicUrl;
+      console.log('Generated avatar URL:', newAvatarUrl);
+
       // Update profile in database
       const { error } = await supabase
         .from("profiles")
@@ -183,10 +213,15 @@ const ProfileScreen = ({ navigation }) => {
         })
         .eq("id", profile.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database update error:', error);
+        throw error;
+      }
 
+      console.log('Database updated successfully');
       setAvatarUrl(newAvatarUrl);
-      
+      console.log('Avatar URL state updated to:', newAvatarUrl);
+
       // Success animation - toast style
       Animated.sequence([
         Animated.timing(successAnim, {
@@ -207,21 +242,73 @@ const ProfileScreen = ({ navigation }) => {
       Alert.alert('Error', 'Failed to upload profile picture. Please try again.');
     } finally {
       setUploadingAvatar(false);
+      console.log('Upload process finished, uploadingAvatar set to false');
     }
   };
 
   const showImagePicker = () => {
-    Alert.alert(
-      "Change Profile Picture",
-      "Choose how you'd like to update your profile picture",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Camera", onPress: takePhoto },
-        { text: "Photo Library", onPress: pickImage },
-        ...(avatarUrl ? [{ text: "Remove Photo", style: "destructive", onPress: removeProfilePicture }] : []),
-      ],
-      { cancelable: true }
-    );
+    console.log('showImagePicker called');
+    // Direct call to pickImage to bypass Alert issues on web/Expo
+    pickImage();
+  };
+
+  const onCropComplete = (croppedArea, croppedAreaPixels) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  };
+
+  const handleCropAndUpload = async () => {
+    if (!selectedImage || !croppedAreaPixels) return;
+
+    console.log('Cropping and uploading image...');
+    console.log('Crop area:', croppedAreaPixels);
+
+    // Create cropped image
+    const croppedImage = await createCroppedImage(selectedImage.uri, croppedAreaPixels);
+
+    setShowCropModal(false);
+    await uploadProfilePicture(croppedImage);
+    setSelectedImage(null);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    setCroppedAreaPixels(null);
+  };
+
+  const createCroppedImage = async (imageSrc, cropArea) => {
+    try {
+      console.log('Starting image crop with area:', cropArea);
+
+      const result = await ImageManipulator.manipulateAsync(
+        imageSrc,
+        [
+          {
+            crop: {
+              originX: cropArea.x,
+              originY: cropArea.y,
+              width: cropArea.width,
+              height: cropArea.height,
+            },
+          },
+        ],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      console.log('Crop successful:', result);
+
+      return {
+        uri: result.uri,
+        width: result.width,
+        height: result.height,
+        type: 'image',
+        mimeType: 'image/jpeg',
+        fileName: `cropped_${Date.now()}.jpg`,
+        fileSize: result.width * result.height * 0.5, // Estimate file size
+      };
+    } catch (error) {
+      console.error('Error cropping image:', error);
+      console.log('Using original image as fallback');
+      // Fallback to original image if cropping fails
+      return selectedImage;
+    }
   };
 
   const removeProfilePicture = async () => {
@@ -466,7 +553,16 @@ const ProfileScreen = ({ navigation }) => {
             <View style={styles.avatarContainer}>
               <Animated.View style={{ transform: [{ scale: avatarScale }] }}>
                 <TouchableOpacity
-                  onPress={showImagePicker}
+                  onPress={() => {
+                    console.log('Avatar pressed!');
+                    showImagePicker();
+                  }}
+                  onLongPress={() => {
+                    if (avatarUrl) {
+                      console.log('Long press - removing avatar');
+                      removeProfilePicture();
+                    }
+                  }}
                   style={[
                     styles.avatarWrapper,
                     { borderColor: theme.colors.primary }
@@ -490,16 +586,17 @@ const ProfileScreen = ({ navigation }) => {
                       <ActivityIndicator size="large" color="#fff" />
                     </View>
                   )}
-                  
-                  <View style={[styles.avatarEditIcon, { backgroundColor: theme.colors.primary }]}>
-                    <Ionicons name="camera" size={16} color="#fff" />
-                  </View>
                 </TouchableOpacity>
               </Animated.View>
               
               <Text style={[styles.avatarHint, { color: theme.colors.textSecondary }]}>
                 Tap to change your profile picture
               </Text>
+              {avatarUrl && (
+                <Text style={[styles.avatarSubHint, { color: theme.colors.textTertiary }]}>
+                  Hold to remove current photo
+                </Text>
+              )}
             </View>
           </View>
 
@@ -885,6 +982,79 @@ const ProfileScreen = ({ navigation }) => {
               />
             </View>
           </Modal>
+
+          {/* Circular Crop Modal */}
+          <Modal
+            visible={showCropModal}
+            animationType="slide"
+            presentationStyle="fullScreen"
+            onRequestClose={() => setShowCropModal(false)}
+          >
+            <View style={[styles.cropModalContainer, { backgroundColor: '#000000' }]}>
+              <View style={[styles.cropHeader, { backgroundColor: 'rgba(0,0,0,0.8)' }]}>
+                <TouchableOpacity
+                  onPress={() => setShowCropModal(false)}
+                  style={[styles.cropButton, styles.cropCancelButton]}
+                >
+                  <Ionicons name="close" size={24} color="#FFFFFF" />
+                  <Text style={[styles.cropButtonText, { color: '#FFFFFF' }]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <View style={styles.cropTitleContainer}>
+                  <Text style={[styles.cropTitle, { color: '#FFFFFF' }]}>
+                    Crop Photo
+                  </Text>
+                  <Text style={[styles.cropSubtitle, { color: '#CCCCCC' }]}>
+                    Move and scale to crop
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  onPress={handleCropAndUpload}
+                  style={[styles.cropButton, styles.cropDoneButton, { backgroundColor: theme.colors.primary }]}
+                  disabled={!croppedAreaPixels}
+                >
+                  <Ionicons name="checkmark" size={24} color="#FFFFFF" />
+                  <Text style={[styles.cropButtonText, { color: '#FFFFFF' }]}>Done</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.cropImageContainer}>
+                {selectedImage && (
+                  <Cropper
+                    image={selectedImage.uri}
+                    crop={crop}
+                    zoom={zoom}
+                    aspect={1}
+                    cropShape="round"
+                    onCropChange={setCrop}
+                    onZoomChange={setZoom}
+                    onCropComplete={onCropComplete}
+                    style={{
+                      containerStyle: { backgroundColor: '#000000' },
+                      cropAreaStyle: { border: '2px solid #FFFFFF' }
+                    }}
+                  />
+                )}
+              </View>
+
+              <View style={styles.cropInstructions}>
+                <View style={styles.cropControlsRow}>
+                  <View style={styles.cropControl}>
+                    <Ionicons name="move" size={20} color="#FFFFFF" />
+                    <Text style={[styles.cropControlText, { color: '#FFFFFF' }]}>Drag to move</Text>
+                  </View>
+                  <View style={styles.cropControl}>
+                    <Ionicons name="expand" size={20} color="#FFFFFF" />
+                    <Text style={[styles.cropControlText, { color: '#FFFFFF' }]}>Pinch to zoom</Text>
+                  </View>
+                </View>
+                <Text style={[styles.cropHelpText, { color: '#CCCCCC' }]}>
+                  Position your photo within the circle for your avatar
+                </Text>
+              </View>
+            </View>
+          </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -998,6 +1168,12 @@ const createStyles = (theme) => StyleSheet.create({
   avatarHint: {
     fontSize: 14,
     textAlign: 'center',
+    marginBottom: 4,
+  },
+  avatarSubHint: {
+    fontSize: 12,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   inputGroup: {
     marginBottom: 16,
@@ -1232,6 +1408,86 @@ const createStyles = (theme) => StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     paddingVertical: 16,
+  },
+  // Crop Modal Styles
+  cropModalContainer: {
+    flex: 1,
+  },
+  cropHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+  },
+  cropButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 25,
+    minWidth: 80,
+  },
+  cropCancelButton: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  cropDoneButton: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  cropButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  cropTitleContainer: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  cropTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  cropSubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  cropImageContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  cropInstructions: {
+    padding: 24,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+  },
+  cropControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+  },
+  cropControl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20,
+  },
+  cropControlText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  cropHelpText: {
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });
 

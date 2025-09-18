@@ -1164,19 +1164,17 @@ export default function ChatScreen({ route, navigation }) {
       <View
         style={[styles.container, { backgroundColor: theme.colors.background }]}
       >
-        <SafeAreaView style={styles.safeArea}>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text
-              style={[
-                styles.loadingText,
-                { color: theme.colors.textSecondary },
-              ]}
-            >
-              Loading messages...
-            </Text>
-          </View>
-        </SafeAreaView>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text
+            style={[
+              styles.loadingText,
+              { color: theme.colors.textSecondary },
+            ]}
+          >
+            Loading messages...
+          </Text>
+        </View>
       </View>
     );
   }
@@ -1196,6 +1194,33 @@ export default function ChatScreen({ route, navigation }) {
             onPress={() => navigation.goBack()}
           >
             <Ionicons name="chevron-back" size={24} color="#000000" />
+          </TouchableOpacity>
+
+          {/* User Avatar */}
+          <TouchableOpacity
+            style={styles.headerAvatarContainer}
+            onPress={() => {
+              // Optional: Navigate to user profile or show user info
+              console.log('Avatar tapped - could show user profile');
+            }}
+            activeOpacity={0.8}
+          >
+            <View style={[
+              styles.headerAvatar,
+              { backgroundColor: theme.colors.primary }
+            ]}>
+              {otherUser?.avatar_url ? (
+                <Image
+                  source={{ uri: otherUser.avatar_url }}
+                  style={styles.headerAvatarImage}
+                />
+              ) : (
+                <Text style={styles.headerAvatarText}>
+                  {otherUser?.display_name?.charAt(0).toUpperCase() ||
+                   otherUser?.username?.charAt(0).toUpperCase() || "?"}
+                </Text>
+              )}
+            </View>
           </TouchableOpacity>
 
           <View style={styles.headerUserInfo}>
