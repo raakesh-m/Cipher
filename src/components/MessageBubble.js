@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import messageStatusService, { MessageStatus } from '../services/messageStatusService';
+import VoiceMessage from './VoiceMessage';
 
 const MessageBubble = ({ 
   message, 
@@ -60,13 +61,22 @@ const MessageBubble = ({
 
   const getMessageTime = () => {
     if (!message.created_at) return '';
-    
-    const date = new Date(message.created_at);
-    return date.toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: false 
-    });
+
+    try {
+      const date = new Date(message.created_at);
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date for message:', message.created_at);
+        return '';
+      }
+      return date.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+    } catch (error) {
+      console.error('Error formatting message time:', error);
+      return '';
+    }
   };
 
   // Determine what content to show based on context
@@ -172,8 +182,17 @@ const MessageBubble = ({
           </View>
         )}
 
-        {/* Render file attachment if message type is file */}
-        {message.message_type === 'file' ? (
+        {/* Render content based on message type */}
+        {message.message_type === 'voice' ? (
+          <VoiceMessage
+            voiceUrl={message.voice_url}
+            duration={message.voice_duration}
+            isOwnMessage={isOwnMessage}
+            onPlayStateChange={(isPlaying) => {
+              // Optional: Could implement global audio management here
+            }}
+          />
+        ) : message.message_type === 'file' ? (
           <View style={styles.fileAttachment}>
             <View style={[styles.fileIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
               <Ionicons name="document" size={24} color="#FFFFFF" />
@@ -211,7 +230,15 @@ const MessageBubble = ({
       {showTimestamp && (
         <View style={styles.timestampContainer}>
           <Text style={[styles.timestamp, { color: theme.colors.textTertiary }]}>
-            {new Date(message.created_at).toLocaleDateString()} {getMessageTime()}
+            {message.created_at ? (() => {
+              try {
+                const date = new Date(message.created_at);
+                if (isNaN(date.getTime())) return 'Invalid Date';
+                return `${date.toLocaleDateString()} ${getMessageTime()}`;
+              } catch (error) {
+                return 'Invalid Date';
+              }
+            })() : 'No Date'}
           </Text>
         </View>
       )}

@@ -6,26 +6,9 @@ const ENCRYPTION_KEY = "cipher_app_key_2024"; // In production, use a proper key
 
 // Check if translation is enabled for the current user
 export const isTranslationEnabled = async () => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return false;
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("translation_enabled")
-      .eq("id", user.id)
-      .single();
-
-    if (error) {
-      console.error("Error checking translation status:", error);
-      return true; // Default to enabled if we can't check
-    }
-
-    return data?.translation_enabled !== false; // Default to true if not set
-  } catch (error) {
-    console.error("Error checking translation status:", error);
-    return true; // Default to enabled on error
-  }
+  // Translation is always enabled - no database check needed
+  // If you want to add a toggle in the future, add a translation_enabled column to profiles table
+  return true;
 };
 
 export const encryptApiKey = async (apiKey) => {

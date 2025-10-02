@@ -31,10 +31,11 @@ import onlineStatusService from "../services/onlineStatusService";
 import MessageBubble from "../components/MessageBubble";
 import TypingIndicator from "../components/TypingIndicator";
 import ConnectionStatus from "../components/ConnectionStatus";
+import VoiceRecorder from "../components/VoiceRecorder";
 
 export default function ChatScreen({ route, navigation }) {
   const { theme } = useTheme();
-  const { chatId, otherUser } = route.params;
+  const { chatId, otherUser, isGroup, groupName, groupAvatarUrl, participants } = route.params;
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -572,7 +573,10 @@ export default function ChatScreen({ route, navigation }) {
     console.log("⚡ Instant message received:", {
       temp_id: messageData?.temp_id,
       sender_id: messageData?.sender_id,
-      content: messageData?.content_original?.substring(0, 50) + "...",
+      message_type: messageData?.message_type,
+      content: messageData?.message_type === 'voice'
+        ? '[Voice Message]'
+        : messageData?.content_original?.substring(0, 50) + "...",
       was_translated: messageData?.was_translated,
       chat_id: messageData?.chat_id,
     });
@@ -604,6 +608,16 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       console.log("⚡ Adding instant message:", messageData.temp_id);
+      if (messageData.message_type === 'voice') {
+        console.log("🎵 Voice message received:", {
+          message_type: messageData.message_type,
+          voice_url_type: messageData.voice_url?.startsWith('data:') ? 'data URL' :
+                         messageData.voice_url?.startsWith('blob:') ? 'blob URL' :
+                         messageData.voice_url?.startsWith('http') ? 'HTTP URL' : 'other',
+          voice_duration: messageData.voice_duration,
+          voice_size: messageData.voice_size
+        });
+      }
 
       // Add with instant delivery status
       // Since recipient is actively viewing the chat, mark as READ immediately
@@ -769,6 +783,208 @@ export default function ChatScreen({ route, navigation }) {
     }, 100);
   };
 
+  const handleVoiceMessage = async (recording) => {
+    if (!currentUser?.id || !recording?.uri) return;
+
+    setSending(true);
+    const recipientId = isGroup ? null : (otherUser.id || otherUser.user_id);
+
+    // Generate unique identifier for the voice message (outside try block for error handling)
+    const tempId = `voice_${Date.now()}_${Math.random()}`;
+
+    try {
+
+      // Stop typing indicator if active
+      if (currentUser?.id) {
+        await typingService.stopTyping(chatId, currentUser.id);
+      }
+
+      // Upload voice file to R2
+      const fileName = `voice_${tempId}.m4a`;
+      const voiceUrl = await uploadToR2(recording.uri, fileName, 'audio/m4a');
+
+      if (!voiceUrl) {
+        throw new Error('Failed to upload voice message');
+      }
+
+      // Create optimistic voice message
+      const optimisticMessage = {
+        id: tempId,
+        temp_id: tempId,
+        chat_id: chatId,
+        content_original: '[Voice Message]',
+        content_translated: null,
+        sender_id: currentUser.id,
+        message_type: "voice",
+        voice_url: voiceUrl,
+        voice_duration: recording.duration,
+        voice_size: recording.size,
+        status: "sending",
+        created_at: new Date().toISOString(),
+        profiles: currentUser,
+        was_translated: false,
+      };
+
+      // Add optimistic message to UI
+      setMessages((prev) => [...prev, optimisticMessage]);
+
+      // Broadcast instant voice message with the actual blob URL for development
+      const broadcastPayload = {
+        ...optimisticMessage,
+        voice_url: voiceUrl, // Use the actual blob URL for real-time broadcast
+        sender_profile: currentUser,
+      };
+
+      if (window.chatChannel) {
+        await window.chatChannel.send({
+          type: "broadcast",
+          event: "instant_message",
+          payload: broadcastPayload,
+        });
+        console.log("✅ Voice message broadcast sent successfully");
+      }
+
+      // Update status to sent
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.temp_id === tempId ? { ...msg, status: "sent" } : msg
+        )
+      );
+
+      // Save voice message to database
+      // Note: For production, use proper R2 upload via backend API
+      // For development, data URLs work for persistence
+      const databaseMessage = {
+        chat_id: chatId,
+        content_original: '[Voice Message]',
+        sender_id: currentUser.id,
+        recipient_id: recipientId,
+        message_type: "voice",
+        voice_url: voiceUrl,
+        voice_duration: recording.duration,
+        voice_size: recording.size,
+        status: "sent",
+        temp_id: tempId,
+        created_at: new Date().toISOString(),
+      };
+
+      const { data: newMessage, error } = await supabase
+        .from("messages")
+        .insert(databaseMessage)
+        .select(
+          `
+          *,
+          profiles!messages_sender_id_profiles_fkey (
+            id,
+            username,
+            display_name,
+            avatar_url
+          )
+        `
+        )
+        .single();
+
+      if (error) {
+        console.error('Database insert error:', error);
+        throw error;
+      }
+
+      // Send push notifications
+      if (isGroup) {
+        // Send notifications to all group participants except the sender
+        const { data: groupParticipants } = await supabase
+          .from("chat_participants")
+          .select(`
+            user_id,
+            profiles!inner (
+              expo_push_token,
+              display_name,
+              username
+            )
+          `)
+          .eq("chat_id", chatId)
+          .neq("user_id", currentUser.id);
+
+        const senderName = currentUser?.display_name || currentUser?.username || "Someone";
+
+        for (const participant of groupParticipants || []) {
+          if (participant.profiles?.expo_push_token) {
+            try {
+              await sendPushNotification(
+                participant.profiles.expo_push_token,
+                `${senderName} in ${groupName || "Group"}`,
+                '🎵 Voice message',
+                {
+                  screen: "Chat",
+                  chatId: chatId,
+                  isGroup: true,
+                  groupName: groupName,
+                  groupAvatarUrl: groupAvatarUrl,
+                  participants: participants,
+                }
+              );
+            } catch (notificationError) {
+              console.error("❌ Group voice notification failed:", notificationError);
+            }
+          }
+        }
+      } else {
+        // Direct chat notification
+        const { data: recipientProfileForNotification } = await supabase
+          .from("profiles")
+          .select("expo_push_token, display_name, username")
+          .eq("id", recipientId)
+          .single();
+
+        if (recipientProfileForNotification?.expo_push_token) {
+          try {
+            const senderName =
+              currentUser?.display_name || currentUser?.username || "Someone";
+            await sendPushNotification(
+              recipientProfileForNotification.expo_push_token,
+              `Voice message from ${senderName}`,
+              '🎵 Voice message',
+              {
+                screen: "Chat",
+                chatId: chatId,
+                otherUser: {
+                  id: currentUser.id,
+                  user_id: currentUser.id,
+                  display_name: senderName,
+                  username: currentUser.username,
+                },
+              }
+            );
+          } catch (notificationError) {
+            console.error("❌ Failed to send voice notification:", notificationError);
+          }
+        }
+      }
+
+      // Replace optimistic message with the real one from database
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.temp_id === tempId ? { ...newMessage, profiles: currentUser } : msg
+        )
+      );
+
+      console.log("✅ Voice message sent successfully");
+    } catch (error) {
+      console.error("❌ Failed to send voice message:", error);
+
+      // Mark as failed
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.temp_id === tempId ? { ...msg, status: "failed" } : msg
+        )
+      );
+
+      Alert.alert("Error", "Failed to send voice message. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const sendMessage = async () => {
     console.log("🚀 sendMessage called with:", {
       inputText: inputText.trim(),
@@ -780,7 +996,7 @@ export default function ChatScreen({ route, navigation }) {
 
     setSending(true);
     const messageText = inputText.trim();
-    const recipientId = otherUser.id || otherUser.user_id;
+    const recipientId = isGroup ? null : (otherUser.id || otherUser.user_id);
 
     // Stop typing indicator
     if (currentUser?.id) {
@@ -862,21 +1078,34 @@ export default function ChatScreen({ route, navigation }) {
         error: null,
       };
 
-      // Get recipient profile for translation (in background)
-      const { data: recipientProfile } = await supabase
-        .from("profiles")
-        .select("known_languages, preferred_language")
-        .eq("id", recipientId)
-        .single();
+      // Handle translation for group chats and direct chats
+      let recipientProfile = null;
+      if (!isGroup && recipientId) {
+        // Get recipient profile for translation (in background)
+        const { data } = await supabase
+          .from("profiles")
+          .select("known_languages, preferred_language")
+          .eq("id", recipientId)
+          .single();
+        recipientProfile = data;
+      }
 
       // Check if current user can translate (has API key)
-      if (currentUser?.gemini_api_key_encrypted && recipientProfile) {
+      if (currentUser?.gemini_api_key_encrypted && (recipientProfile || isGroup)) {
         try {
+          // For group chats, use English as default; for direct chats, use recipient preferences
+          const targetLanguages = isGroup
+            ? ["English"]
+            : recipientProfile.known_languages || ["English"];
+          const preferredLanguage = isGroup
+            ? "English"
+            : recipientProfile.preferred_language || "English";
+
           translationResult = await translateMessageForRecipient(
             messageText,
             currentUser.known_languages || ["English"],
-            recipientProfile.known_languages || ["English"],
-            recipientProfile.preferred_language || "English",
+            targetLanguages,
+            preferredLanguage,
             currentUser.gemini_api_key_encrypted
           );
 
@@ -970,37 +1199,78 @@ export default function ChatScreen({ route, navigation }) {
       if (error) throw error;
 
 
-      // Send push notification
-      const { data: recipientProfileForNotification } = await supabase
-        .from("profiles")
-        .select("expo_push_token, display_name, username")
-        .eq("id", recipientId)
-        .single();
+      // Send push notifications
+      if (isGroup) {
+        // Send notifications to all group participants except the sender
+        const { data: groupParticipants } = await supabase
+          .from("chat_participants")
+          .select(`
+            user_id,
+            profiles!inner (
+              expo_push_token,
+              display_name,
+              username
+            )
+          `)
+          .eq("chat_id", chatId)
+          .neq("user_id", currentUser.id);
 
-      if (recipientProfileForNotification?.expo_push_token) {
-        try {
-          const senderName =
-            currentUser?.display_name || currentUser?.username || "Someone";
-          await sendPushNotification(
-            recipientProfileForNotification.expo_push_token,
-            `Message from ${senderName}`,
-            contentForRecipient, // Send translated version in notification
-            {
-              screen: "Chat",
-              chatId: chatId,
-              otherUser: {
-                id: currentUser.id,
-                user_id: currentUser.id,
-                display_name: senderName,
-                username: currentUser.username,
-              },
+        const senderName = currentUser?.display_name || currentUser?.username || "Someone";
+
+        for (const participant of groupParticipants || []) {
+          if (participant.profiles?.expo_push_token) {
+            try {
+              await sendPushNotification(
+                participant.profiles.expo_push_token,
+                `${senderName} in ${groupName || "Group"}`,
+                contentForRecipient,
+                {
+                  screen: "Chat",
+                  chatId: chatId,
+                  isGroup: true,
+                  groupName: groupName,
+                  groupAvatarUrl: groupAvatarUrl,
+                  participants: participants,
+                }
+              );
+            } catch (notificationError) {
+              console.error("❌ Group notification failed:", notificationError);
             }
-          );
-        } catch (notificationError) {
-          console.error(
-            "❌ Failed to send push notification:",
-            notificationError
-          );
+          }
+        }
+      } else {
+        // Direct chat notification
+        const { data: recipientProfileForNotification } = await supabase
+          .from("profiles")
+          .select("expo_push_token, display_name, username")
+          .eq("id", recipientId)
+          .single();
+
+        if (recipientProfileForNotification?.expo_push_token) {
+          try {
+            const senderName =
+              currentUser?.display_name || currentUser?.username || "Someone";
+            await sendPushNotification(
+              recipientProfileForNotification.expo_push_token,
+              `Message from ${senderName}`,
+              contentForRecipient, // Send translated version in notification
+              {
+                screen: "Chat",
+                chatId: chatId,
+                otherUser: {
+                  id: currentUser.id,
+                  user_id: currentUser.id,
+                  display_name: senderName,
+                  username: currentUser.username,
+                },
+              }
+            );
+          } catch (notificationError) {
+            console.error(
+              "❌ Failed to send push notification:",
+              notificationError
+            );
+          }
         }
       }
 
@@ -1197,12 +1467,16 @@ export default function ChatScreen({ route, navigation }) {
             <Ionicons name="chevron-back" size={24} color="#000000" />
           </TouchableOpacity>
 
-          {/* User Avatar */}
+          {/* User/Group Avatar */}
           <TouchableOpacity
             style={styles.headerAvatarContainer}
             onPress={() => {
-              // Optional: Navigate to user profile or show user info
-              console.log('Avatar tapped - could show user profile');
+              if (isGroup) {
+                navigation.navigate("GroupInfo", { chatId });
+              } else {
+                // Optional: Navigate to user profile or show user info
+                console.log('Avatar tapped - could show user profile');
+              }
             }}
             activeOpacity={0.8}
           >
@@ -1210,29 +1484,46 @@ export default function ChatScreen({ route, navigation }) {
               styles.headerAvatar,
               { backgroundColor: theme.colors.primary }
             ]}>
-              {otherUser?.avatar_url ? (
-                <Image
-                  source={{ uri: otherUser.avatar_url }}
-                  style={styles.headerAvatarImage}
-                />
+              {isGroup ? (
+                // Group avatar
+                groupAvatarUrl ? (
+                  <Image
+                    source={{ uri: groupAvatarUrl }}
+                    style={styles.headerAvatarImage}
+                  />
+                ) : (
+                  <Ionicons name="people" size={20} color="#fff" />
+                )
               ) : (
-                <Text style={styles.headerAvatarText}>
-                  {otherUser?.display_name?.charAt(0).toUpperCase() ||
-                   otherUser?.username?.charAt(0).toUpperCase() || "?"}
-                </Text>
+                // Direct chat avatar
+                otherUser?.avatar_url ? (
+                  <Image
+                    source={{ uri: otherUser.avatar_url }}
+                    style={styles.headerAvatarImage}
+                  />
+                ) : (
+                  <Text style={styles.headerAvatarText}>
+                    {otherUser?.display_name?.charAt(0).toUpperCase() ||
+                     otherUser?.username?.charAt(0).toUpperCase() || "?"}
+                  </Text>
+                )
               )}
             </View>
           </TouchableOpacity>
 
           <View style={styles.headerUserInfo}>
             <Text style={[styles.headerName, { color: "#000000" }]}>
-              {otherUser?.display_name || otherUser?.username || "Chat"}
+              {isGroup
+                ? groupName || "Group Chat"
+                : otherUser?.display_name || otherUser?.username || "Chat"}
             </Text>
             <Text style={[
               styles.headerStatus,
-              { color: onlineStatusService.getStatusColor(otherUserStatus, theme) }
+              { color: isGroup ? "#666666" : onlineStatusService.getStatusColor(otherUserStatus, theme) }
             ]}>
-              {onlineStatusService.formatStatusText(otherUserStatus)}
+              {isGroup
+                ? `${participants?.length || 0} participants`
+                : onlineStatusService.formatStatusText(otherUserStatus)}
             </Text>
           </View>
 
@@ -1304,12 +1595,14 @@ export default function ChatScreen({ route, navigation }) {
           ]}
         >
           <View style={styles.curvedInputWrapper}>
-            <TouchableOpacity
-              style={styles.micButton}
-              onPress={() => {}} // Add microphone functionality here
-            >
-              <Ionicons name="mic" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
+            <VoiceRecorder
+              onRecordingComplete={handleVoiceMessage}
+              onCancel={() => {
+                // Optional: Handle cancel if needed
+                console.log('Voice recording cancelled');
+              }}
+              maxDuration={300000} // 5 minutes
+            />
 
             <TextInput
               style={[

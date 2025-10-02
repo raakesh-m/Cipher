@@ -42,6 +42,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "notification": {
+      "vapidPublicKey": "YOUR_VAPID_PUBLIC_KEY_HERE"
+    },
     "extra": {
       "eas": {
         "projectId": "6774bcca-b30f-4817-9da9-7e2acd36fc25"

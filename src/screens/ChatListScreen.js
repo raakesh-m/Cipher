@@ -176,13 +176,19 @@ export default function ChatListScreen({ navigation }) {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get chats with latest message and other participant info
+      // Get all chats where user is a participant
       const { data, error } = await supabase
         .from("chats")
         .select(
           `
           id,
           created_at,
+          updated_at,
+          chat_name,
+          chat_description,
+          chat_type,
+          is_group,
+          group_avatar_url,
           chat_participants!inner (
             user_id,
             profiles!inner (
@@ -205,25 +211,42 @@ export default function ChatListScreen({ navigation }) {
 
       if (error) throw error;
 
-      // Process chats to get the other participant and latest message
+      // Process chats to handle both direct and group chats
       const processedChats = data.map((chat) => {
-        const otherParticipant = chat.chat_participants.find(
-          (p) => p.user_id !== user.id
-        );
-
         const latestMessage = chat.messages.sort(
           (a, b) => new Date(b.created_at) - new Date(a.created_at)
         )[0];
 
-        return {
-          id: chat.id,
-          otherUser: {
-            ...otherParticipant?.profiles,
-            user_id: otherParticipant?.user_id,
-          },
-          latestMessage,
-          updatedAt: chat.created_at,
-        };
+        if (chat.is_group) {
+          // Group chat
+          return {
+            id: chat.id,
+            isGroup: true,
+            groupName: chat.chat_name,
+            groupDescription: chat.chat_description,
+            groupAvatarUrl: chat.group_avatar_url,
+            participantCount: chat.chat_participants.length,
+            participants: chat.chat_participants.map(p => p.profiles),
+            latestMessage,
+            updatedAt: chat.updated_at || chat.created_at,
+          };
+        } else {
+          // Direct chat
+          const otherParticipant = chat.chat_participants.find(
+            (p) => p.user_id !== user.id
+          );
+
+          return {
+            id: chat.id,
+            isGroup: false,
+            otherUser: {
+              ...otherParticipant?.profiles,
+              user_id: otherParticipant?.user_id,
+            },
+            latestMessage,
+            updatedAt: chat.updated_at || chat.created_at,
+          };
+        }
       });
 
       setChats(processedChats);
@@ -258,6 +281,11 @@ export default function ChatListScreen({ navigation }) {
 
   const menuItems = [
     {
+      title: "Create Group",
+      icon: "people-outline",
+      onPress: () => navigation.navigate("CreateGroup"),
+    },
+    {
       title: "Profile",
       icon: "person-outline",
       onPress: () => navigation.navigate("Profile"),
@@ -277,10 +305,19 @@ export default function ChatListScreen({ navigation }) {
   const formatMessagePreview = (message) => {
     if (!message) return "No messages yet";
 
-    if (message.message_type === "text") {
-      return message.content_translated || message.content_original;
-    } else {
-      return `📎 ${message.message_type}`;
+    switch (message.message_type) {
+      case "text":
+        return message.content_translated || message.content_original;
+      case "voice":
+        return "🎵 Voice message";
+      case "image":
+        return "📷 Photo";
+      case "video":
+        return "🎥 Video";
+      case "file":
+        return "📎 File";
+      default:
+        return `📎 ${message.message_type}`;
     }
   };
 
@@ -345,26 +382,49 @@ export default function ChatListScreen({ navigation }) {
           styles.chatItem,
           { borderBottomColor: theme.colors.divider }
         ]}
-        onPress={() =>
-          navigation.navigate("Chat", {
-            chatId: item.id,
-            otherUser: item.otherUser,
-          })
-        }
+        onPress={() => {
+          if (item.isGroup) {
+            navigation.navigate("Chat", {
+              chatId: item.id,
+              isGroup: true,
+              groupName: item.groupName,
+              groupAvatarUrl: item.groupAvatarUrl,
+              participants: item.participants,
+            });
+          } else {
+            navigation.navigate("Chat", {
+              chatId: item.id,
+              otherUser: item.otherUser,
+            });
+          }
+        }}
       >
         <View style={[
           styles.avatar,
           { backgroundColor: theme.colors.primary }
         ]}>
-          {item.otherUser?.avatar_url ? (
-            <Image
-              source={{ uri: item.otherUser.avatar_url }}
-              style={styles.avatarImage}
-            />
+          {item.isGroup ? (
+            // Group chat avatar
+            item.groupAvatarUrl ? (
+              <Image
+                source={{ uri: item.groupAvatarUrl }}
+                style={styles.avatarImage}
+              />
+            ) : (
+              <Ionicons name="people" size={24} color="#fff" />
+            )
           ) : (
-            <Text style={styles.avatarText}>
-              {getInitials(item.otherUser?.display_name || item.otherUser?.username)}
-            </Text>
+            // Direct chat avatar
+            item.otherUser?.avatar_url ? (
+              <Image
+                source={{ uri: item.otherUser.avatar_url }}
+                style={styles.avatarImage}
+              />
+            ) : (
+              <Text style={styles.avatarText}>
+                {getInitials(item.otherUser?.display_name || item.otherUser?.username)}
+              </Text>
+            )
           )}
         </View>
 
@@ -375,10 +435,20 @@ export default function ChatListScreen({ navigation }) {
                 styles.chatName,
                 { color: theme.colors.textPrimary }
               ]}>
-                {item.otherUser?.display_name ||
-                  item.otherUser?.username ||
-                  "Unknown User"}
+                {item.isGroup
+                  ? item.groupName || "Unnamed Group"
+                  : item.otherUser?.display_name ||
+                    item.otherUser?.username ||
+                    "Unknown User"}
               </Text>
+              {item.isGroup && (
+                <Ionicons
+                  name="people"
+                  size={14}
+                  color={theme.colors.textSecondary}
+                  style={styles.pinIcon}
+                />
+              )}
               {isPinned && (
                 <Ionicons
                   name="pin"
@@ -517,28 +587,56 @@ export default function ChatListScreen({ navigation }) {
         </View>
 
         {activeTab === 'groups' ? (
-          <View style={styles.emptyState}>
-            <View style={[
-              styles.emptyIcon,
-              { backgroundColor: theme.colors.surface }
-            ]}>
-              <Ionicons
-                name="people-outline"
-                size={48}
-                color={theme.colors.textTertiary}
-              />
+          chats.filter(chat => chat.isGroup).length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={[
+                styles.emptyIcon,
+                { backgroundColor: theme.colors.surface }
+              ]}>
+                <Ionicons
+                  name="people-outline"
+                  size={48}
+                  color={theme.colors.textTertiary}
+                />
+              </View>
+              <Text style={[
+                styles.emptyText,
+                { color: theme.colors.text }
+              ]}>No group chats yet</Text>
+              <Text style={[
+                styles.emptySubtext,
+                { color: theme.colors.textSecondary }
+              ]}>
+                Create a group chat to start messaging with multiple people
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.startChatButton,
+                  { backgroundColor: theme.colors.primary }
+                ]}
+                onPress={() => navigation.navigate("CreateGroup")}
+              >
+                <Ionicons name="add" size={20} color="#fff" style={{ marginRight: theme.spacing?.sm || 8 }} />
+                <Text style={styles.startChatText}>Create Group</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={[
-              styles.emptyText,
-              { color: theme.colors.text }
-            ]}>Groups Coming Soon</Text>
-            <Text style={[
-              styles.emptySubtext,
-              { color: theme.colors.textSecondary }
-            ]}>
-              Group chats feature is currently under development and will be available soon!
-            </Text>
-          </View>
+          ) : (
+            <FlatList
+              data={chats.filter(chat => chat.isGroup)}
+              renderItem={renderChatItem}
+              keyExtractor={(item) => item.id}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={theme.colors.primary}
+                  colors={[theme.colors.primary]}
+                />
+              }
+              contentContainerStyle={styles.chatList}
+              showsVerticalScrollIndicator={false}
+            />
+          )
         ) : chats.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={[
@@ -574,7 +672,7 @@ export default function ChatListScreen({ navigation }) {
           </View>
         ) : (
           <FlatList
-            data={activeTab === 'all' ? chats : []}
+            data={chats}
             renderItem={renderChatItem}
             keyExtractor={(item) => item.id}
             refreshControl={

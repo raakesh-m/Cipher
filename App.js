@@ -21,6 +21,8 @@ import ThemedSettingsScreen from "./src/screens/ThemedSettingsScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
 import UserSearchScreen from "./src/screens/UserSearchScreen";
 import MediaViewerScreen from "./src/screens/MediaViewerScreen";
+import CreateGroupScreen from "./src/screens/CreateGroupScreen";
+import GroupInfoScreen from "./src/screens/GroupInfoScreen";
 
 const Stack = createStackNavigator();
 
@@ -72,10 +74,20 @@ function AppContent() {
 
       // Handle notification taps (when app is closed/background)
       const responseListener = addNotificationResponseListener(response => {
-        const { screen, chatId, otherUser } = response.notification.request.content.data;
-        
-        if (screen === 'Chat' && chatId && otherUser && navigationRef.current) {
-          navigationRef.current.navigate('Chat', { chatId, otherUser });
+        const { screen, chatId, otherUser, isGroup, groupName, groupAvatarUrl, participants } = response.notification.request.content.data;
+
+        if (screen === 'Chat' && chatId && navigationRef.current) {
+          if (isGroup) {
+            navigationRef.current.navigate('Chat', {
+              chatId,
+              isGroup,
+              groupName,
+              groupAvatarUrl,
+              participants
+            });
+          } else if (otherUser) {
+            navigationRef.current.navigate('Chat', { chatId, otherUser });
+          }
         }
       });
 
@@ -167,6 +179,20 @@ function AppContent() {
                 headerBackTitleVisible: false,
                 headerTintColor: "#fff",
                 headerStyle: { backgroundColor: "#000" },
+              }}
+            />
+            <Stack.Screen
+              name="CreateGroup"
+              component={CreateGroupScreen}
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen
+              name="GroupInfo"
+              component={GroupInfoScreen}
+              options={{
+                headerShown: false,
               }}
             />
           </>
