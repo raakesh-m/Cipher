@@ -1367,6 +1367,7 @@ export default function ChatScreen({ route, navigation }) {
       <MessageBubble
         message={item}
         isOwnMessage={isOwnMessage}
+        isGroupChat={isGroup}
         onRetry={() => handleRetryMessage(item)}
         onLongPress={() => {
           // Add message actions (copy, delete, etc.)
@@ -1533,6 +1534,15 @@ export default function ChatScreen({ route, navigation }) {
                 styles.circularActionButton,
                 { backgroundColor: theme.colors.threadBackground },
               ]}
+              onPress={() => {
+                Alert.alert(
+                  "Voice Calls Coming Soon! 📞",
+                  "We're working hard to bring you crystal-clear voice calls. Stay tuned!",
+                  [
+                    { text: "Got it!", style: "default" }
+                  ]
+                );
+              }}
             >
               <Ionicons name="call" size={20} color="#FFFFFF" />
             </TouchableOpacity>
@@ -1541,6 +1551,15 @@ export default function ChatScreen({ route, navigation }) {
                 styles.circularActionButton,
                 { backgroundColor: theme.colors.threadBackground },
               ]}
+              onPress={() => {
+                Alert.alert(
+                  "Video Calls Coming Soon! 🎥",
+                  "Get ready for face-to-face conversations right in Cipher. We're almost there!",
+                  [
+                    { text: "Awesome!", style: "default" }
+                  ]
+                );
+              }}
             >
               <Ionicons name="videocam" size={20} color="#FFFFFF" />
             </TouchableOpacity>

@@ -1,19 +1,40 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 import messageStatusService, { MessageStatus } from '../services/messageStatusService';
 import VoiceMessage from './VoiceMessage';
 
-const MessageBubble = ({ 
-  message, 
-  isOwnMessage, 
-  onRetry, 
+const MessageBubble = ({
+  message,
+  isOwnMessage,
+  onRetry,
   onLongPress,
-  showTimestamp = false 
+  showTimestamp = false,
+  isGroupChat = false
 }) => {
   const { theme } = useTheme();
   const [showingOriginal, setShowingOriginal] = useState(false);
+
+  // Get sender display name for group chats
+  const getSenderName = () => {
+    if (!isGroupChat || isOwnMessage) return null;
+
+    const senderProfile = message.profiles;
+    if (!senderProfile) return 'Unknown';
+
+    return senderProfile.display_name || senderProfile.username || 'Unknown';
+  };
+
+  // Get initials for avatar
+  const getInitials = (name) => {
+    if (!name) return "?";
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) {
+      return words[0].charAt(0).toUpperCase();
+    }
+    return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase();
+  };
 
   const getStatusIcon = () => {
     if (!isOwnMessage) return null;
@@ -154,11 +175,35 @@ const MessageBubble = ({
     }
   ];
 
+  const senderName = getSenderName();
+  const senderProfile = message.profiles;
+
   return (
     <View style={[
       styles.messageContainer,
       isOwnMessage ? styles.ownMessageContainer : styles.otherMessageContainer
     ]}>
+      {/* Sender info for group chats (only for other people's messages) */}
+      {isGroupChat && !isOwnMessage && senderName && (
+        <View style={styles.senderInfoContainer}>
+          <View style={[styles.senderAvatar, { backgroundColor: theme.colors.primary }]}>
+            {senderProfile?.avatar_url ? (
+              <Image
+                source={{ uri: senderProfile.avatar_url }}
+                style={styles.senderAvatarImage}
+              />
+            ) : (
+              <Text style={styles.senderAvatarText}>
+                {getInitials(senderName)}
+              </Text>
+            )}
+          </View>
+          <Text style={[styles.senderName, { color: theme.colors.textSecondary }]}>
+            {senderName}
+          </Text>
+        </View>
+      )}
+
       <TouchableOpacity
         onLongPress={handleLongPress}
         style={bubbleStyle}
@@ -167,10 +212,10 @@ const MessageBubble = ({
         {/* Translation indicator for received messages */}
         {isTranslatedMessage() && (
           <View style={styles.translationIndicator}>
-            <Ionicons 
-              name="language" 
-              size={12} 
-              color={theme.colors.primary} 
+            <Ionicons
+              name="language"
+              size={12}
+              color={theme.colors.primary}
               style={{ marginRight: 4 }}
             />
             <Text style={[
@@ -256,6 +301,35 @@ const styles = StyleSheet.create({
   },
   otherMessageContainer: {
     alignItems: 'flex-start',
+  },
+  senderInfoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    marginLeft: 4,
+  },
+  senderAvatar: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 6,
+    overflow: 'hidden',
+  },
+  senderAvatarImage: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  senderAvatarText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  senderName: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   bubble: {
     maxWidth: '80%',
